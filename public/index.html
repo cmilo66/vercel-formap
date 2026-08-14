@@ -220,6 +220,61 @@
   dialog h4{ font-family: var(--display); font-size:16px; margin-bottom:10px; color: var(--red); }
   dialog p{ font-size:13px; color: var(--text-dim); line-height:1.5; margin-bottom:20px; }
   dialog .dialog-actions{ display:flex; gap:10px; justify-content:flex-end; }
+
+  /* ── Date picker a medida ─────────────────────────────────────────────── */
+  .dpicker{ position: relative; }
+  .dp-trigger{
+    width:100%; background: var(--bg); border:1px solid var(--border); color: var(--text);
+    padding: 10px 12px; font-family: var(--mono); font-size:13px; cursor:pointer;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    transition: border-color .15s; user-select:none;
+  }
+  .dp-trigger:hover, .dp-trigger.open{ border-color: var(--amber); }
+  .dp-trigger .dp-placeholder{ color: var(--text-faint); }
+  .dp-trigger svg{ flex-shrink:0; color: var(--text-faint); }
+  .dp-trigger.open svg{ color: var(--amber); }
+
+  .dp-panel{
+    position:absolute; top: calc(100% + 6px); left:0; z-index:30;
+    width: 280px; background: var(--panel-raised); border:1px solid var(--border-bright);
+    box-shadow: 0 12px 32px rgba(0,0,0,.5);
+    padding: 14px; opacity:0; transform: translateY(-6px); pointer-events:none;
+    transition: opacity .15s, transform .15s;
+  }
+  .dp-panel.open{ opacity:1; transform: translateY(0); pointer-events:auto; }
+
+  .dp-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .dp-header .dp-month{ font-family: var(--display); font-size:13px; font-weight:600; text-transform:capitalize; }
+  .dp-nav{
+    width:26px; height:26px; display:flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid var(--border-bright); color: var(--text-dim);
+    cursor:pointer; transition: all .15s;
+  }
+  .dp-nav:hover{ border-color: var(--amber); color: var(--amber); }
+
+  .dp-weekdays, .dp-days{ display:grid; grid-template-columns: repeat(7,1fr); gap:3px; }
+  .dp-weekdays{ margin-bottom:6px; }
+  .dp-weekdays span{
+    font-family: var(--mono); font-size:9px; color: var(--text-faint); text-align:center;
+    text-transform:uppercase; letter-spacing:.04em;
+  }
+  .dp-day{
+    aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    font-family: var(--mono); font-size:12px; color: var(--text-dim); cursor:pointer;
+    border:1px solid transparent; transition: all .12s;
+  }
+  .dp-day:hover{ border-color: var(--amber); color: var(--amber); }
+  .dp-day.muted{ color: var(--text-faint); opacity:.35; }
+  .dp-day.today{ color: var(--teal); }
+  .dp-day.selected{ background: var(--amber); color:#0a0c0f; font-weight:600; }
+  .dp-day.selected:hover{ border-color: var(--amber); }
+
+  .dp-footer{ margin-top:12px; padding-top:10px; border-top:1px solid var(--border); text-align:right; }
+  .dp-footer button{
+    font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+    background:none; border:none; color: var(--text-faint); cursor:pointer;
+  }
+  .dp-footer button:hover{ color: var(--amber); }
 </style>
 </head>
 <body>
@@ -289,12 +344,12 @@
         <input id="fEquipoRuta" type="text" placeholder="38607927">
       </div>
       <div class="field">
-        <label for="fFechaInicio">Fecha inicio</label>
-        <input id="fFechaInicio" type="date">
+        <label>Fecha inicio</label>
+        <div class="dpicker" id="dpFechaInicio"></div>
       </div>
       <div class="field">
-        <label for="fFechaFin">Fecha fin</label>
-        <input id="fFechaFin" type="date">
+        <label>Fecha fin</label>
+        <div class="dpicker" id="dpFechaFin"></div>
       </div>
     </div>
     <div class="actions">
@@ -411,6 +466,130 @@ async function verificarSesion(){
   }
 }
 
+// ── Date picker a medida (sin input nativo) ──────────────────────────────────
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const DIAS_SEMANA = ['L','M','X','J','V','S','D'];
+const datePickers = {};
+
+function crearDatePicker(containerId){
+  const cont = $(containerId);
+  const hoy = new Date();
+  const estado = { valor: null, vistaMes: hoy.getMonth(), vistaAnio: hoy.getFullYear(), abierto: false };
+
+  const trigger = document.createElement('div');
+  trigger.className = 'dp-trigger';
+  trigger.innerHTML = `<span class="dp-placeholder">dd/mm/aaaa</span>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="1"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>`;
+
+  const panel = document.createElement('div');
+  panel.className = 'dp-panel';
+
+  cont.appendChild(trigger);
+  cont.appendChild(panel);
+
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function isoDeValor(v){ return v ? `${v.getFullYear()}-${pad(v.getMonth()+1)}-${pad(v.getDate())}` : ''; }
+
+  function render(){
+    const primerDia = new Date(estado.vistaAnio, estado.vistaMes, 1);
+    let arranque = primerDia.getDay() - 1; if (arranque < 0) arranque = 6;
+    const diasEnMes = new Date(estado.vistaAnio, estado.vistaMes + 1, 0).getDate();
+
+    let celdas = '';
+    for (let i = 0; i < arranque; i++) celdas += `<div class="dp-day muted"></div>`;
+    for (let d = 1; d <= diasEnMes; d++){
+      const esHoy = d === hoy.getDate() && estado.vistaMes === hoy.getMonth() && estado.vistaAnio === hoy.getFullYear();
+      const esSel = estado.valor && d === estado.valor.getDate() && estado.vistaMes === estado.valor.getMonth() && estado.vistaAnio === estado.valor.getFullYear();
+      celdas += `<div class="dp-day${esHoy?' today':''}${esSel?' selected':''}" data-day="${d}">${d}</div>`;
+    }
+
+    panel.innerHTML = `
+      <div class="dp-header">
+        <button type="button" class="dp-nav" data-nav="-1">&lsaquo;</button>
+        <span class="dp-month">${MESES[estado.vistaMes]} ${estado.vistaAnio}</span>
+        <button type="button" class="dp-nav" data-nav="1">&rsaquo;</button>
+      </div>
+      <div class="dp-weekdays">${DIAS_SEMANA.map(d=>`<span>${d}</span>`).join('')}</div>
+      <div class="dp-days">${celdas}</div>
+      <div class="dp-footer"><button type="button" data-hoy="1">Hoy</button></div>
+    `;
+
+    panel.querySelectorAll('[data-nav]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        estado.vistaMes += parseInt(btn.dataset.nav, 10);
+        if (estado.vistaMes < 0){ estado.vistaMes = 11; estado.vistaAnio--; }
+        if (estado.vistaMes > 11){ estado.vistaMes = 0; estado.vistaAnio++; }
+        render();
+      });
+    });
+    panel.querySelectorAll('.dp-day[data-day]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        estado.valor = new Date(estado.vistaAnio, estado.vistaMes, parseInt(el.dataset.day, 10));
+        actualizarTrigger();
+        cerrar();
+      });
+    });
+    panel.querySelector('[data-hoy]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      estado.vistaMes = hoy.getMonth(); estado.vistaAnio = hoy.getFullYear();
+      estado.valor = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+      actualizarTrigger();
+      cerrar();
+    });
+  }
+
+  function actualizarTrigger(){
+    const span = trigger.querySelector('span');
+    if (estado.valor){
+      span.textContent = `${pad(estado.valor.getDate())}/${pad(estado.valor.getMonth()+1)}/${estado.valor.getFullYear()}`;
+      span.classList.remove('dp-placeholder');
+    } else {
+      span.textContent = 'dd/mm/aaaa';
+      span.classList.add('dp-placeholder');
+    }
+  }
+
+  function abrir(){
+    document.querySelectorAll('.dp-panel.open').forEach(p => p.classList.remove('open'));
+    document.querySelectorAll('.dp-trigger.open').forEach(t => t.classList.remove('open'));
+    render();
+    panel.classList.add('open');
+    trigger.classList.add('open');
+    estado.abierto = true;
+  }
+  function cerrar(){
+    panel.classList.remove('open');
+    trigger.classList.remove('open');
+    estado.abierto = false;
+  }
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    estado.abierto ? cerrar() : abrir();
+  });
+
+  datePickers[containerId] = {
+    get valor(){ return isoDeValor(estado.valor); },
+    set valor(iso){
+      if (!iso) { estado.valor = null; actualizarTrigger(); return; }
+      const [y,m,d] = iso.split('-').map(Number);
+      estado.valor = new Date(y, m-1, d);
+      estado.vistaMes = m-1; estado.vistaAnio = y;
+      actualizarTrigger();
+    },
+    cerrar,
+  };
+}
+
+document.addEventListener('click', () => {
+  Object.values(datePickers).forEach(dp => dp.cerrar());
+});
+
+crearDatePicker('dpFechaInicio');
+crearDatePicker('dpFechaFin');
+
 function fechaFormapDesde(inputDate){
   if (!inputDate) return '';
   const [y,m,d] = inputDate.split('-');
@@ -493,7 +672,7 @@ $('logoutBtn').addEventListener('click', () => { borrarToken(); mostrarLogin(); 
 
 $('btnBuscar').addEventListener('click', async () => {
   const equipoRuta = $('fEquipoRuta').value.trim();
-  const fi = $('fFechaInicio').value, ff = $('fFechaFin').value;
+  const fi = datePickers.dpFechaInicio.valor, ff = datePickers.dpFechaFin.valor;
   if (!equipoRuta || !fi || !ff) {
     toast('Completa equipo_ruta_id y las fechas.', 'error');
     return;
