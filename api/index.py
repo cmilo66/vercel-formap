@@ -21,7 +21,16 @@ from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS,
 from lib import session_store  # noqa: E402
 from lib import db, auth  # noqa: E402
 
-app = FastAPI()
+# /docs, /redoc y /openapi.json vienen expuestos públicamente por defecto en
+# FastAPI — para un servicio interno que reutiliza una sesión real de FORMAP,
+# eso es exposición innecesaria del mapa completo de la API. Se apagan salvo
+# que DEBUG_DOCS=true esté puesto explícitamente en las env vars de Vercel.
+_docs_habilitados = os.environ.get("DEBUG_DOCS") == "true"
+app = FastAPI(
+    docs_url="/docs" if _docs_habilitados else None,
+    redoc_url="/redoc" if _docs_habilitados else None,
+    openapi_url="/openapi.json" if _docs_habilitados else None,
+)
 
 
 def requiere_service_key(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
