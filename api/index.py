@@ -13,168 +13,152 @@ import os
 import sys
 from functools import wraps
 
-from flask import Flask, jsonify, request
+from fastapi import FastAPI, Header, HTTPException, Request
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, parsear_nc  # noqa: E402
 from lib import session_store  # noqa: E402
 
-app = Flask(__name__)
+app = FastAPI()
 
 
-def requiere_service_key(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        esperado = os.environ.get("SERVICE_KEY")
-        recibido = request.headers.get("X-Service-Key")
-        if not esperado or recibido != esperado:
-            return jsonify({"error": "No autorizado."}), 401
-        return fn(*args, **kwargs)
-    return wrapper
+def requiere_service_key(x_service_key: str = Header(default=None)):
+    esperado = os.environ.get("SERVICE_KEY")
+    if not esperado or x_service_key != esperado:
+        raise HTTPException(status_code=401, detail="No autorizado.")
 
 
 def _cliente() -> FormapClient:
-    cookies = session_store.cargar_sesion()
+    try:
+        cookies = session_store.cargar_sesion()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return FormapClient(cookies)
 
 
-def _manejar_sesion_expirada(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except FormapSessionExpirada as e:
-            return jsonify({"error": str(e), "sesion_expirada": True}), 409
-        except RuntimeError as e:
-            return jsonify({"error": str(e)}), 500
-    return wrapper
+def _con_manejo_sesion(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except FormapSessionExpirada as e:
+        raise HTTPException(status_code=409, detail={"error": str(e), "sesion_expirada": True})
 
 
 # ── Salud / diagnóstico ──────────────────────────────────────────────────────────
-@app.route("/api/formap/estado-sesion", methods=["GET"])
-@requiere_service_key
-def estado_sesion():
+@app.get("/api/formap/estado-sesion")
+def estado_sesion(x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
     edad = session_store.edad_sesion_segundos()
     try:
         session_store.cargar_sesion()
         tiene_sesion = True
     except RuntimeError:
         tiene_sesion = False
-    return jsonify({
+    return {
         "tiene_sesion": tiene_sesion,
         "edad_segundos": edad,
         "edad_horas": round(edad / 3600, 1) if edad else None,
-    })
+    }
 
 
 # ── Catálogos ─────────────────────────────────────────────────────────────────────
-@app.route("/api/formap/catalogos/tipos-equipo", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def catalogo_tipos_equipo():
-    return jsonify(_cliente().get_tipos_equipo())
+@app.get("/api/formap/catalogos/tipos-equipo")
+def catalogo_tipos_equipo(x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(lambda: _cliente().get_tipos_equipo())
 
 
-@app.route("/api/formap/catalogos/departamentos", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def catalogo_departamentos():
-    return jsonify(_cliente().get_nivel1())
+@app.get("/api/formap/catalogos/departamentos")
+def catalogo_departamentos(x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(lambda: _cliente().get_nivel1())
 
 
-@app.route("/api/formap/catalogos/municipios", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def catalogo_municipios():
-    nivel1 = request.args.get("nivel1", "")
-    return jsonify(_cliente().get_nivel2(nivel1))
+@app.get("/api/formap/catalogos/municipios")
+def catalogo_municipios(nivel1: str = "", x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(lambda: _cliente().get_nivel2(nivel1))
 
 
-@app.route("/api/formap/catalogos/sectores", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def catalogo_sectores():
-    nivel1 = request.args.get("nivel1", "")
-    nivel2 = request.args.get("nivel2", "")
-    return jsonify(_cliente().get_nivel3(nivel1, nivel2))
+@app.get("/api/formap/catalogos/sectores")
+def catalogo_sectores(nivel1: str = "", nivel2: str = "", x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(lambda: _cliente().get_nivel3(nivel1, nivel2))
 
 
-@app.route("/api/formap/catalogos/contratistas", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def catalogo_contratistas():
-    return jsonify(_cliente().get_contratistas())
+@app.get("/api/formap/catalogos/contratistas")
+def catalogo_contratistas(x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(lambda: _cliente().get_contratistas())
 
 
-@app.route("/api/formap/catalogos/rutas", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def catalogo_rutas():
-    p = request.args
-    rutas = _cliente().get_rutas(
-        fecha_inicio=p["fecha_inicio"], fecha_fin=p["fecha_fin"],
-        tipoeq=p.get("tipoeq", ""), nivel1=p.get("nivel1", ""),
-        nivel2=p.get("nivel2", ""), nivel3=p.get("nivel3", ""),
-        contratista=p.get("contratista", ""),
+@app.get("/api/formap/catalogos/rutas")
+def catalogo_rutas(
+    fecha_inicio: str, fecha_fin: str, tipoeq: str = "", nivel1: str = "",
+    nivel2: str = "", nivel3: str = "", contratista: str = "",
+    x_service_key: str = Header(default=None),
+):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(
+        lambda: _cliente().get_rutas(
+            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, tipoeq=tipoeq,
+            nivel1=nivel1, nivel2=nivel2, nivel3=nivel3, contratista=contratista,
+        )
     )
-    return jsonify(rutas)
 
 
 # ── Operación principal: traer NC de FORMAP ─────────────────────────────────────
-@app.route("/api/formap/buscar", methods=["POST"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def buscar():
+@app.post("/api/formap/buscar")
+async def buscar(request: Request, x_service_key: str = Header(default=None)):
     """Body JSON: {fecha_inicio, fecha_fin, ruta_ids, search_string?, tipoeq?,
     contratista?, cantidad?}. fecha_inicio/fin en 'DD/MM/YYYY 0:00:00'.
     Devuelve la lista de hallazgos ya parseados (no el HTML crudo)."""
-    body = request.get_json(force=True)
-    html = _cliente().buscar_nc(
-        fecha_inicio=body["fecha_inicio"], fecha_fin=body["fecha_fin"],
-        ruta_ids=body["ruta_ids"], search_string=body.get("search_string", ""),
-        tipoeq=body.get("tipoeq") or TIPOEQ_TODOS,
-        contratista=body.get("contratista") or CONTRATISTA_FSCR,
-        cantidad=body.get("cantidad", 100),
-    )
-    return jsonify({"hallazgos": parsear_nc(html)})
+    requiere_service_key(x_service_key)
+    body = await request.json()
+
+    def _hacer():
+        html = _cliente().buscar_nc(
+            fecha_inicio=body["fecha_inicio"], fecha_fin=body["fecha_fin"],
+            ruta_ids=body["ruta_ids"], search_string=body.get("search_string", ""),
+            tipoeq=body.get("tipoeq") or TIPOEQ_TODOS,
+            contratista=body.get("contratista") or CONTRATISTA_FSCR,
+            cantidad=body.get("cantidad", 100),
+        )
+        return {"hallazgos": parsear_nc(html)}
+
+    return _con_manejo_sesion(_hacer)
 
 
-@app.route("/api/formap/buscar-por-ruta", methods=["POST"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def buscar_por_ruta():
+@app.post("/api/formap/buscar-por-ruta")
+async def buscar_por_ruta(request: Request, x_service_key: str = Header(default=None)):
     """Atajo pensado para el uso principal: dado un equipo_ruta_id (el que ya
     vive en no_conformidades.equipo_ruta_id), lo busca directo en FORMAP.
     Body JSON: {equipo_ruta_id, fecha_inicio, fecha_fin, ruta_ids}."""
-    body = request.get_json(force=True)
-    hallazgos = _cliente().buscar_por_equipo_ruta_id(
-        equipo_ruta_id=body["equipo_ruta_id"],
-        fecha_inicio=body["fecha_inicio"], fecha_fin=body["fecha_fin"],
-        ruta_ids=body["ruta_ids"],
-    )
-    return jsonify({"hallazgos": hallazgos})
+    requiere_service_key(x_service_key)
+    body = await request.json()
+
+    def _hacer():
+        hallazgos = _cliente().buscar_por_equipo_ruta_id(
+            equipo_ruta_id=body["equipo_ruta_id"],
+            fecha_inicio=body["fecha_inicio"], fecha_fin=body["fecha_fin"],
+            ruta_ids=body["ruta_ids"],
+        )
+        return {"hallazgos": hallazgos}
+
+    return _con_manejo_sesion(_hacer)
 
 
-@app.route("/api/formap/detalle/<nc_formap_id>", methods=["GET"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def detalle(nc_formap_id):
-    html = _cliente().detalle_nc(nc_formap_id)
-    return jsonify({"html": html})
+@app.get("/api/formap/detalle/{nc_formap_id}")
+def detalle(nc_formap_id: str, x_service_key: str = Header(default=None)):
+    requiere_service_key(x_service_key)
+    return _con_manejo_sesion(lambda: {"html": _cliente().detalle_nc(nc_formap_id)})
 
 
 # ── Escritura — ÚNICO disparador válido, siempre iniciado por tu sistema ────────
-@app.route("/api/formap/cerrar", methods=["POST"])
-@requiere_service_key
-@_manejar_sesion_expirada
-def cerrar():
+@app.post("/api/formap/cerrar")
+async def cerrar(request: Request, x_service_key: str = Header(default=None)):
     """EXPERIMENTAL — ver advertencia en formap_client.marcar_resuelta().
     No integrar a ningún flujo automático sin antes probar manualmente contra
     una sola NC y confirmar en FORMAP que hizo lo esperado."""
-    body = request.get_json(force=True)
-    resultado = _cliente().marcar_resuelta(body["nc_formap_id"])
-    return jsonify(resultado)
-
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    requiere_service_key(x_service_key)
+    body = await request.json()
+    return _con_manejo_sesion(lambda: _cliente().marcar_resuelta(body["nc_formap_id"]))
