@@ -151,6 +151,15 @@ def catalogo_rutas(
     )
 
 
+@app.get("/api/formap/rutas-automaticas")
+def rutas_automaticas(fecha_inicio: str, fecha_fin: str, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """fecha_inicio/fecha_fin en formato YYYY-MM-DD. Recorre el catálogo completo
+    y devuelve los Ruta IDs listos para pasar a /api/formap/buscar-por-ruta —
+    así el panel nunca necesita que el usuario conozca esos IDs internos."""
+    requiere_service_key(x_service_key, authorization)
+    return _con_manejo_sesion(lambda: {"ruta_ids": _cliente().obtener_ruta_ids_automatico(fecha_inicio, fecha_fin)})
+
+
 # ── Operación principal: traer NC de FORMAP ─────────────────────────────────────
 @app.post("/api/formap/buscar")
 async def buscar(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):

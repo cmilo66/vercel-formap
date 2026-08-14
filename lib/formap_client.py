@@ -91,6 +91,29 @@ class FormapClient:
             "Contratista": contratista,
         }).json()
 
+    def obtener_ruta_ids_automatico(self, fecha_inicio: str, fecha_fin: str) -> str:
+        """Recorre TODO el catálogo (departamento → municipio → sector → tipo de
+        equipo) y devuelve los Ruta IDs correspondientes ya unidos por coma, para
+        no depender de que el usuario del panel conozca esos IDs internos de
+        FORMAP. fecha_inicio/fecha_fin en formato YYYY-MM-DD."""
+        tipoeq_ids = ",".join(str(t["TipoEquipoId"]) for t in self.get_tipos_equipo())
+
+        nivel1_ids = [str(d["UbicacionId"]) for d in self.get_nivel1()]
+        nivel2_ids = []
+        for n1 in nivel1_ids:
+            nivel2_ids += [str(m["UbicacionId"]) for m in self.get_nivel2(n1)]
+        nivel3_ids = []
+        for n1 in nivel1_ids:
+            for n2 in nivel2_ids:
+                nivel3_ids += [str(s["UbicacionId"]) for s in self.get_nivel3(n1, n2)]
+
+        rutas = self.get_rutas(
+            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, tipoeq=tipoeq_ids,
+            nivel1=",".join(nivel1_ids), nivel2=",".join(nivel2_ids), nivel3=",".join(nivel3_ids),
+            contratista=CONTRATISTA_FSCR,
+        )
+        return ",".join(str(r["RutaId"]) for r in rutas)
+
     # ── Listado / búsqueda de NC (la operación principal) ───────────────────────────
     def buscar_nc(
         self, fecha_inicio: str, fecha_fin: str, ruta_ids: str,

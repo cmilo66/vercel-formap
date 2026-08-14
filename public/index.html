@@ -296,14 +296,10 @@
         <label for="fFechaFin">Fecha fin</label>
         <input id="fFechaFin" type="date">
       </div>
-      <div class="field">
-        <label for="fRutaIds">Ruta IDs (catálogo)</label>
-        <input id="fRutaIds" type="text" placeholder="1526568,1526571,...">
-      </div>
     </div>
     <div class="actions">
       <button class="btn" id="btnBuscar">Buscar en FORMAP</button>
-      <span class="hint" id="buscarHint">Los Ruta IDs se sacan del catálogo de FORMAP para el rango de fechas elegido.</span>
+      <span class="hint" id="buscarHint">El panel arma el catálogo de rutas de FORMAP solo, no hace falta que lo escribas.</span>
     </div>
   </div>
 
@@ -497,22 +493,29 @@ $('logoutBtn').addEventListener('click', () => { borrarToken(); mostrarLogin(); 
 
 $('btnBuscar').addEventListener('click', async () => {
   const equipoRuta = $('fEquipoRuta').value.trim();
-  const rutaIds = $('fRutaIds').value.trim();
   const fi = $('fFechaInicio').value, ff = $('fFechaFin').value;
-  if (!equipoRuta || !rutaIds || !fi || !ff) {
-    toast('Completa equipo_ruta_id, fechas y Ruta IDs.', 'error');
+  if (!equipoRuta || !fi || !ff) {
+    toast('Completa equipo_ruta_id y las fechas.', 'error');
     return;
   }
   const btn = $('btnBuscar');
-  btn.disabled = true; btn.textContent = 'Buscando...';
+  btn.disabled = true;
   try {
+    btn.textContent = 'Armando catálogo de rutas...';
+    const catalogo = await llamar(`/api/formap/rutas-automaticas?fecha_inicio=${fi}&fecha_fin=${ff}`);
+    if (!catalogo.ruta_ids) {
+      toast('FORMAP no reportó rutas para ese rango de fechas.', 'error');
+      return;
+    }
+
+    btn.textContent = 'Buscando...';
     const r = await llamar('/api/formap/buscar-por-ruta', {
       method: 'POST',
       body: JSON.stringify({
         equipo_ruta_id: equipoRuta,
         fecha_inicio: fechaFormapDesde(fi),
         fecha_fin: fechaFormapDesde(ff),
-        ruta_ids: rutaIds,
+        ruta_ids: catalogo.ruta_ids,
       }),
     });
     renderResultados(r.hallazgos);
