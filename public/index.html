@@ -233,38 +233,41 @@
       <p>Servicio independiente · nc&nbsp;⇄&nbsp;pigo</p>
     </div>
   </div>
-  <div class="session-pill">
-    <div class="dot" id="sessionDot"></div>
-    <span id="sessionText">sin verificar</span>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <div class="session-pill">
+      <div class="dot" id="sessionDot"></div>
+      <span id="sessionText">sin verificar</span>
+    </div>
+    <button class="btn secondary" id="logoutBtn" style="padding:8px 14px;">Salir</button>
   </div>
 </header>
 
-<main>
+<div id="loginScreen" style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;">
+  <div class="panel" style="width:100%; max-width:380px; opacity:0; animation: rise .5s ease forwards;">
+    <div class="panel-head">
+      <h3>Acceso al panel</h3>
+      <span class="tag">Login</span>
+    </div>
+    <div class="field" style="margin-bottom:16px;">
+      <label for="loginUsuario">Usuario</label>
+      <input id="loginUsuario" type="text" placeholder="C.royero" autocomplete="username">
+    </div>
+    <div class="field" style="margin-bottom:20px;">
+      <label for="loginPassword">Contraseña</label>
+      <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <div class="actions" style="width:100%;">
+      <button class="btn" id="btnLogin" style="width:100%; text-align:center;">Ingresar</button>
+    </div>
+    <div class="hint" id="loginError" style="color:var(--red); margin-top:12px;"></div>
+  </div>
+</div>
+
+<main id="mainApp" style="display:none;">
   <div class="intro">
     <div class="eyebrow">Panel de control · lectura y cierre</div>
     <h2>Buscar No Conformidades en FORMAP</h2>
     <p>Este panel llama directo al servicio HTTP desplegado en Vercel — sin navegador, sin intermediarios. Úsalo para verificar el estado real de una NC en FORMAP antes de confirmar su cierre en PIGO.</p>
-  </div>
-
-  <div class="panel" style="animation-delay:.05s">
-    <div class="panel-head">
-      <h3>Credenciales</h3>
-      <span class="tag">Requerido</span>
-    </div>
-    <div class="field-grid">
-      <div class="field">
-        <label for="apiUrl">URL del servicio</label>
-        <input id="apiUrl" type="text" placeholder="https://vercel-formap.vercel.app">
-      </div>
-      <div class="field">
-        <label for="serviceKey">X-Service-Key</label>
-        <input id="serviceKey" type="password" placeholder="tu clave secreta">
-      </div>
-    </div>
-    <div class="actions">
-      <button class="btn" id="btnConectar">Conectar y verificar sesión</button>
-      <span class="hint">Se guarda solo en este navegador (localStorage) — nunca sale de tu equipo salvo hacia el propio servicio.</span>
-    </div>
   </div>
 
   <div class="panel" style="animation-delay:.1s">
@@ -319,16 +322,47 @@
 const $ = (id) => document.getElementById(id);
 let pendienteCierre = null;
 
-function cargarConfig(){
-  $('apiUrl').value = localStorage.getItem('formap_api_url') || location.origin;
-  $('serviceKey').value = localStorage.getItem('formap_service_key') || '';
+function apiUrl(){ return location.origin; }
+function authToken(){ return localStorage.getItem('formap_token') || ''; }
+function guardarToken(t){ localStorage.setItem('formap_token', t); }
+function borrarToken(){ localStorage.removeItem('formap_token'); }
+
+function mostrarApp(){
+  $('loginScreen').style.display = 'none';
+  $('mainApp').style.display = 'block';
+  verificarSesion();
 }
-function guardarConfig(){
-  localStorage.setItem('formap_api_url', $('apiUrl').value.trim().replace(/\/$/,''));
-  localStorage.setItem('formap_service_key', $('serviceKey').value.trim());
+function mostrarLogin(){
+  $('mainApp').style.display = 'none';
+  $('loginScreen').style.display = 'flex';
 }
-function apiUrl(){ return localStorage.getItem('formap_api_url') || location.origin; }
-function serviceKey(){ return localStorage.getItem('formap_service_key') || ''; }
+
+async function intentarLogin(){
+  const usuario = $('loginUsuario').value.trim();
+  const password = $('loginPassword').value;
+  const err = $('loginError');
+  err.textContent = '';
+  if (!usuario || !password) { err.textContent = 'Completa usuario y contraseña.'; return; }
+
+  const btn = $('btnLogin');
+  btn.disabled = true; btn.textContent = 'Verificando...';
+  try {
+    const resp = await fetch(apiUrl() + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || 'Error de login');
+    guardarToken(data.token);
+    $('loginPassword').value = '';
+    mostrarApp();
+  } catch (e) {
+    err.textContent = e.message || 'Usuario o contraseña incorrectos.';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Ingresar';
+  }
+}
 
 function toast(msg, tipo='info'){
   const t = document.createElement('div');
@@ -342,8 +376,13 @@ function toast(msg, tipo='info'){
 async function llamar(path, opts={}){
   const resp = await fetch(apiUrl() + path, {
     ...opts,
-    headers: { 'X-Service-Key': serviceKey(), 'Content-Type': 'application/json', ...(opts.headers||{}) },
+    headers: { 'Authorization': 'Bearer ' + authToken(), 'Content-Type': 'application/json', ...(opts.headers||{}) },
   });
+  if (resp.status === 401) {
+    borrarToken();
+    mostrarLogin();
+    throw { status: 401, data: { detail: 'Sesión expirada, ingresa de nuevo.' } };
+  }
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw { status: resp.status, data };
   return data;
@@ -435,10 +474,11 @@ async function verDetalle(ncFormapId){
   }
 }
 
-$('btnConectar').addEventListener('click', () => { guardarConfig(); verificarSesion(); });
+$('btnLogin').addEventListener('click', intentarLogin);
+$('loginPassword').addEventListener('keydown', (e) => { if (e.key === 'Enter') intentarLogin(); });
+$('logoutBtn').addEventListener('click', () => { borrarToken(); mostrarLogin(); });
 
 $('btnBuscar').addEventListener('click', async () => {
-  guardarConfig();
   const equipoRuta = $('fEquipoRuta').value.trim();
   const rutaIds = $('fRutaIds').value.trim();
   const fi = $('fFechaInicio').value, ff = $('fFechaFin').value;
@@ -488,8 +528,7 @@ $('btnConfirmar').addEventListener('click', async () => {
   pendienteCierre = null;
 });
 
-cargarConfig();
-if (serviceKey()) verificarSesion();
+if (authToken()) { mostrarApp(); } else { mostrarLogin(); }
 </script>
 </body>
 </html>
