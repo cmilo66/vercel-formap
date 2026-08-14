@@ -35,6 +35,24 @@ BROWSER_HEADERS = {
 TIPOEQ_TODOS = "643,644,645,646,647,648,649,650,651,652,653,654,655,656,657,658,659,660,688,689,662,664,887"
 CONTRATISTA_FSCR = "112"
 
+# Lista fija de Ruta IDs conocidos de FORMAP, capturados con navegador real en
+# corridas previas. Los catálogos en vivo de FORMAP (GetTequipos, GetNivel1/2/3,
+# GetFiltrarRutasFechas) dependen de JavaScript que corre al cargar la página en
+# un navegador real y son intermitentes incluso ahí — por eso NO se recalculan
+# en cada búsqueda, se usa esta lista fija como respaldo. IndexPartial igual
+# filtra por FechaInicio/FechaFin, así que pasar rutas de más (de otro mes) no
+# rompe nada, solo no aporta resultados para ese rango.
+#
+# Para agregar un mes nuevo: abrir FORMAP con un navegador real, aplicar los
+# filtros de ese rango de fechas, y copiar los RutaId reales desde la pestaña
+# Network (petición GetFiltrarRutasFechas) — los nombres visibles en el
+# desplegable ("2026_PODA_BAQN_JUNIO", etc.) no sirven, hacen falta los IDs.
+RUTA_IDS_JULIO_2026 = [
+    "1526568", "1526571", "1526572", "1526573", "1526578", "1526579", "1526580",
+    "1526583", "1526584", "1526585", "1526594", "1526595", "1526596", "1526597", "1531923",
+]
+RUTA_IDS_CONOCIDOS = RUTA_IDS_JULIO_2026  # unión de todos los meses capturados hasta ahora
+
 
 class FormapSessionExpirada(Exception):
     """La sesión guardada ya no es válida — hace falta un login asistido nuevo (captcha)."""
@@ -92,27 +110,14 @@ class FormapClient:
         }).json()
 
     def obtener_ruta_ids_automatico(self, fecha_inicio: str, fecha_fin: str) -> str:
-        """Recorre TODO el catálogo (departamento → municipio → sector → tipo de
-        equipo) y devuelve los Ruta IDs correspondientes ya unidos por coma, para
-        no depender de que el usuario del panel conozca esos IDs internos de
-        FORMAP. fecha_inicio/fecha_fin en formato YYYY-MM-DD."""
-        tipoeq_ids = ",".join(str(t["TipoEquipoId"]) for t in self.get_tipos_equipo())
-
-        nivel1_ids = [str(d["UbicacionId"]) for d in self.get_nivel1()]
-        nivel2_ids = []
-        for n1 in nivel1_ids:
-            nivel2_ids += [str(m["UbicacionId"]) for m in self.get_nivel2(n1)]
-        nivel3_ids = []
-        for n1 in nivel1_ids:
-            for n2 in nivel2_ids:
-                nivel3_ids += [str(s["UbicacionId"]) for s in self.get_nivel3(n1, n2)]
-
-        rutas = self.get_rutas(
-            fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, tipoeq=tipoeq_ids,
-            nivel1=",".join(nivel1_ids), nivel2=",".join(nivel2_ids), nivel3=",".join(nivel3_ids),
-            contratista=CONTRATISTA_FSCR,
-        )
-        return ",".join(str(r["RutaId"]) for r in rutas)
+        """Devuelve la lista fija de Ruta IDs conocidos (ver RUTA_IDS_CONOCIDOS).
+        Los catálogos en vivo de FORMAP (GetTequipos/GetNivel1/2/3/GetFiltrarRutasFechas)
+        dependen de JavaScript de sesión que es intermitente incluso para un
+        navegador real — no vale la pena recalcular esto en cada búsqueda.
+        fecha_inicio/fecha_fin quedan como parámetros por compatibilidad con la
+        firma anterior, no se usan para filtrar (IndexPartial ya filtra por fecha
+        él solo con lo que se le pase)."""
+        return ",".join(RUTA_IDS_CONOCIDOS)
 
     # ── Listado / búsqueda de NC (la operación principal) ───────────────────────────
     def buscar_nc(
