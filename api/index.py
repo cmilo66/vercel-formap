@@ -136,14 +136,17 @@ def catalogo_contratistas(x_service_key: str = Header(default=None), authorizati
 @app.get("/api/formap/catalogos/rutas")
 def catalogo_rutas(
     fecha_inicio: str, fecha_fin: str, tipoeq: str = "", nivel1: str = "",
-    nivel2: str = "", nivel3: str = "", contratista: str = "",
+    nivel2: str = "", nivel3: str = "",
     x_service_key: str = Header(default=None), authorization: str = Header(default=None),
 ):
+    # `contratista` NO es parámetro de entrada a propósito — este servicio es
+    # exclusivamente para FSCR, nunca se acepta desde afuera para evitar traer
+    # rutas de otros contratistas por error o por un valor manipulado.
     requiere_service_key(x_service_key, authorization)
     return _con_manejo_sesion(
         lambda: _cliente().get_rutas(
             fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, tipoeq=tipoeq,
-            nivel1=nivel1, nivel2=nivel2, nivel3=nivel3, contratista=contratista,
+            nivel1=nivel1, nivel2=nivel2, nivel3=nivel3, contratista=CONTRATISTA_FSCR,
         )
     )
 
@@ -152,7 +155,9 @@ def catalogo_rutas(
 @app.post("/api/formap/buscar")
 async def buscar(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
     """Body JSON: {fecha_inicio, fecha_fin, ruta_ids, search_string?, tipoeq?,
-    contratista?, cantidad?}. fecha_inicio/fin en 'DD/MM/YYYY 0:00:00'.
+    cantidad?}. fecha_inicio/fin en 'DD/MM/YYYY 0:00:00'. No se acepta
+    `contratista` desde el body — este servicio es exclusivo de FSCR, siempre
+    se fuerza CONTRATISTA_FSCR sin importar qué mande el cliente.
     Devuelve la lista de hallazgos ya parseados (no el HTML crudo)."""
     requiere_service_key(x_service_key, authorization)
     body = await request.json()
@@ -162,7 +167,7 @@ async def buscar(request: Request, x_service_key: str = Header(default=None), au
             fecha_inicio=body["fecha_inicio"], fecha_fin=body["fecha_fin"],
             ruta_ids=body["ruta_ids"], search_string=body.get("search_string", ""),
             tipoeq=body.get("tipoeq") or TIPOEQ_TODOS,
-            contratista=body.get("contratista") or CONTRATISTA_FSCR,
+            contratista=CONTRATISTA_FSCR,
             cantidad=body.get("cantidad", 100),
         )
         return {"hallazgos": parsear_nc(html)}
