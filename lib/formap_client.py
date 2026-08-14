@@ -43,15 +43,23 @@ CONTRATISTA_FSCR = "112"
 # filtra por FechaInicio/FechaFin, así que pasar rutas de más (de otro mes) no
 # rompe nada, solo no aporta resultados para ese rango.
 #
-# Para agregar un mes nuevo: abrir FORMAP con un navegador real, aplicar los
-# filtros de ese rango de fechas, y copiar los RutaId reales desde la pestaña
-# Network (petición GetFiltrarRutasFechas) — los nombres visibles en el
-# desplegable ("2026_PODA_BAQN_JUNIO", etc.) no sirven, hacen falta los IDs.
+# Para agregar un mes nuevo: correr `python fetch_rutas.py <inicio> <fin> <SUFIJO>`
+# en formap-bot/ (requiere storage_state.json vivo) — automatiza el flujo real del
+# formulario y actualiza este archivo solo. No pedir el catálogo por HTTP directo:
+# GetFiltrarRutasFechas devuelve vacío incluso con sesión de navegador real ya
+# inicializada, solo se llena cuando el propio JS de la página lo dispara tras
+# seleccionar los filtros en orden (ver fetch_rutas.py).
 RUTA_IDS_JULIO_2026 = [
     "1526568", "1526571", "1526572", "1526573", "1526578", "1526579", "1526580",
     "1526583", "1526584", "1526585", "1526594", "1526595", "1526596", "1526597", "1531923",
 ]
-RUTA_IDS_CONOCIDOS = RUTA_IDS_JULIO_2026  # unión de todos los meses capturados hasta ahora
+RUTA_IDS_JUNIO_2026 = [
+    "1521208", "1521209", "1521210", "1521211", "1521212", "1521213", "1521214",
+    "1521216", "1521218", "1521219", "1521221", "1521222", "1521224",
+    "1522407", "1522408", "1522409", "1522410",
+]
+
+RUTA_IDS_CONOCIDOS = RUTA_IDS_JULIO_2026 + RUTA_IDS_JUNIO_2026  # unión de todos los meses capturados hasta ahora
 
 
 class FormapSessionExpirada(Exception):
