@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Puente FORMAP — Panel de Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0a0c0f;
+    --bg-grid: #0d1013;
+    --panel: #14171c;
+    --panel-raised: #1a1e24;
+    --border: #262b33;
+    --border-bright: #3a4150;
+    --text: #e8eaed;
+    --text-dim: #8b929e;
+    --text-faint: #565d68;
+    --amber: #ffb020;
+    --amber-dim: #7a5518;
+    --teal: #2dd4bf;
+    --teal-dim: #164e46;
+    --red: #ff5c5c;
+    --red-dim: #5c1f1f;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+    --display: 'Space Grotesk', sans-serif;
+  }
+  *{ box-sizing: border-box; margin:0; padding:0; }
+  html,body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+  }
+  body{
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: center;
+  }
+  ::selection{ background: var(--amber); color: #0a0c0f; }
+
+  .scanline{
+    position: fixed; top:0; left:0; right:0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    opacity: .5;
+    animation: scan 6s linear infinite;
+    pointer-events: none; z-index: 50;
+  }
+  @keyframes scan{
+    0%{ transform: translateY(-10px); opacity: 0;}
+    5%{ opacity:.6; }
+    95%{ opacity:.6; }
+    100%{ transform: translateY(100vh); opacity:0; }
+  }
+
+  header{
+    border-bottom: 1px solid var(--border);
+    padding: 20px 32px;
+    display:flex; align-items:center; justify-content:space-between;
+    background: linear-gradient(180deg, rgba(20,23,28,.9), rgba(20,23,28,.4));
+    backdrop-filter: blur(6px);
+    position: sticky; top:0; z-index: 40;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand-mark{
+    width:36px; height:36px; border:1.5px solid var(--amber);
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--display); font-weight:700; font-size:15px; color: var(--amber);
+    position:relative;
+    transform: rotate(45deg);
+  }
+  .brand-mark span{ transform: rotate(-45deg); }
+  .brand-text h1{
+    font-family: var(--display); font-size: 18px; font-weight:600; letter-spacing:.02em;
+  }
+  .brand-text p{
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint); letter-spacing: .08em; text-transform:uppercase;
+  }
+
+  .session-pill{
+    display:flex; align-items:center; gap:10px;
+    padding: 8px 14px; border:1px solid var(--border); background: var(--panel);
+    font-family: var(--mono); font-size:12px;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background: var(--text-faint); flex-shrink:0; }
+  .dot.ok{ background: var(--teal); box-shadow:0 0 8px var(--teal); animation: pulse 2s ease-in-out infinite; }
+  .dot.warn{ background: var(--amber); box-shadow:0 0 8px var(--amber); animation: pulse 2s ease-in-out infinite; }
+  .dot.bad{ background: var(--red); box-shadow:0 0 8px var(--red); }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.4;} }
+
+  main{ max-width: 1180px; margin: 0 auto; padding: 40px 32px 100px; }
+
+  .intro{ margin-bottom: 32px; opacity:0; animation: rise .5s ease forwards; }
+  .intro .eyebrow{
+    font-family: var(--mono); font-size: 11px; color: var(--amber); letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px;
+  }
+  .intro h2{
+    font-family: var(--display); font-size: 28px; font-weight:600; letter-spacing:-.01em; margin-bottom:6px;
+  }
+  .intro p{ color: var(--text-dim); font-size: 14px; max-width: 620px; line-height:1.5; }
+
+  @keyframes rise{ from{ opacity:0; transform: translateY(10px);} to{opacity:1; transform:translateY(0);} }
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 24px;
+    opacity: 0; animation: rise .5s ease forwards;
+  }
+  .panel + .panel{ margin-top: 20px; }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;
+    padding-bottom:14px; border-bottom: 1px solid var(--border);
+  }
+  .panel-head h3{
+    font-family: var(--display); font-size:15px; font-weight:600;
+    display:flex; align-items:center; gap:10px;
+  }
+  .panel-head h3::before{
+    content:''; width:3px; height:16px; background: var(--amber); display:inline-block;
+  }
+  .panel-head .tag{
+    font-family: var(--mono); font-size:10px; color: var(--text-faint); border:1px solid var(--border-bright);
+    padding: 3px 8px; letter-spacing:.06em; text-transform:uppercase;
+  }
+
+  .field-grid{ display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:16px; margin-bottom:18px; }
+  .field label{
+    display:block; font-family: var(--mono); font-size:11px; color: var(--text-dim);
+    text-transform:uppercase; letter-spacing:.06em; margin-bottom:7px;
+  }
+  .field input, .field select{
+    width:100%; background: var(--bg); border:1px solid var(--border); color: var(--text);
+    padding: 10px 12px; font-family: var(--mono); font-size:13px; outline:none;
+    transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus{ border-color: var(--amber); }
+  .field input::placeholder{ color: var(--text-faint); }
+
+  .btn{
+    font-family: var(--mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+    padding: 11px 20px; border:1px solid var(--amber); background: transparent; color: var(--amber);
+    cursor:pointer; transition: all .15s; position:relative; overflow:hidden;
+  }
+  .btn:hover{ background: var(--amber); color:#0a0c0f; }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.secondary{ border-color: var(--border-bright); color: var(--text-dim); }
+  .btn.secondary:hover{ background: var(--panel-raised); color: var(--text); }
+  .btn.danger{ border-color: var(--red); color: var(--red); }
+  .btn.danger:hover{ background: var(--red); color: #0a0c0f; }
+
+  .actions{ display:flex; gap:12px; align-items:center; }
+  .hint{ font-family: var(--mono); font-size:11px; color: var(--text-faint); margin-top:10px; }
+
+  #resultados{ margin-top: 20px; display:flex; flex-direction:column; gap:12px; }
+  .empty-state{
+    text-align:center; padding: 60px 20px; color: var(--text-faint);
+    font-family: var(--mono); font-size:12px; letter-spacing:.04em;
+  }
+  .empty-state .glyph{ font-size:32px; margin-bottom:14px; opacity:.5; }
+
+  .card{
+    border:1px solid var(--border); background: var(--panel-raised);
+    padding:18px 20px; opacity:0; animation: rise .4s ease forwards;
+  }
+  .card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; }
+  .card-id{ font-family: var(--mono); font-size:11px; color: var(--amber); letter-spacing:.04em; margin-bottom:4px; }
+  .card-title{ font-family: var(--display); font-size:15px; font-weight:600; line-height:1.3; }
+  .badge{
+    font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+    padding:4px 9px; border:1px solid var(--border-bright); white-space:nowrap; flex-shrink:0;
+  }
+  .badge.info{ color: var(--text-dim); }
+  .badge.closed{ color: var(--teal); border-color: var(--teal-dim); background: rgba(45,212,191,.06); }
+
+  .card-meta{ display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap:10px 20px; margin: 14px 0; }
+  .meta-item .k{ font-family: var(--mono); font-size:10px; color: var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
+  .meta-item .v{ font-size:13px; color: var(--text-dim); margin-top:2px; }
+
+  .card-comentario{
+    font-size:13px; color: var(--text-dim); line-height:1.5; padding:12px 14px;
+    background: var(--bg); border-left: 2px solid var(--teal); margin: 12px 0;
+  }
+  .card-evid{ display:flex; flex-wrap:wrap; gap:8px; margin-top: 10px; }
+  .card-evid a{
+    font-family: var(--mono); font-size:11px; color: var(--text-dim); border:1px solid var(--border-bright);
+    padding:5px 10px; text-decoration:none; transition: all .15s;
+  }
+  .card-evid a:hover{ border-color: var(--amber); color: var(--amber); }
+
+  .card-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+
+  .toast{
+    position:fixed; bottom:24px; right:24px; z-index:60;
+    font-family: var(--mono); font-size:12px; padding:14px 18px;
+    background: var(--panel-raised); border:1px solid var(--border-bright);
+    border-left:3px solid var(--amber); max-width:340px;
+    transform: translateY(20px); opacity:0; transition: all .25s;
+  }
+  .toast.show{ transform: translateY(0); opacity:1; }
+  .toast.err{ border-left-color: var(--red); }
+  .toast.ok{ border-left-color: var(--teal); }
+
+  footer{
+    text-align:center; padding: 30px; color: var(--text-faint);
+    font-family: var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    border-top:1px solid var(--border);
+  }
+
+  dialog{
+    background: var(--panel-raised); color: var(--text); border:1px solid var(--border-bright);
+    padding: 28px; max-width: 420px; width: 90%;
+    font-family: var(--sans);
+  }
+  dialog::backdrop{ background: rgba(0,0,0,.7); }
+  dialog h4{ font-family: var(--display); font-size:16px; margin-bottom:10px; color: var(--red); }
+  dialog p{ font-size:13px; color: var(--text-dim); line-height:1.5; margin-bottom:20px; }
+  dialog .dialog-actions{ display:flex; gap:10px; justify-content:flex-end; }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark"><span>4G</span></div>
+    <div class="brand-text">
+      <h1>Puente FORMAP</h1>
+      <p>Servicio independiente · nc&nbsp;⇄&nbsp;pigo</p>
+    </div>
+  </div>
+  <div class="session-pill">
+    <div class="dot" id="sessionDot"></div>
+    <span id="sessionText">sin verificar</span>
+  </div>
+</header>
+
+<main>
+  <div class="intro">
+    <div class="eyebrow">Panel de control · lectura y cierre</div>
+    <h2>Buscar No Conformidades en FORMAP</h2>
+    <p>Este panel llama directo al servicio HTTP desplegado en Vercel — sin navegador, sin intermediarios. Úsalo para verificar el estado real de una NC en FORMAP antes de confirmar su cierre en PIGO.</p>
+  </div>
+
+  <div class="panel" style="animation-delay:.05s">
+    <div class="panel-head">
+      <h3>Credenciales</h3>
+      <span class="tag">Requerido</span>
+    </div>
+    <div class="field-grid">
+      <div class="field">
+        <label for="apiUrl">URL del servicio</label>
+        <input id="apiUrl" type="text" placeholder="https://vercel-formap.vercel.app">
+      </div>
+      <div class="field">
+        <label for="serviceKey">X-Service-Key</label>
+        <input id="serviceKey" type="password" placeholder="tu clave secreta">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btnConectar">Conectar y verificar sesión</button>
+      <span class="hint">Se guarda solo en este navegador (localStorage) — nunca sale de tu equipo salvo hacia el propio servicio.</span>
+    </div>
+  </div>
+
+  <div class="panel" style="animation-delay:.1s">
+    <div class="panel-head">
+      <h3>Buscar por equipo_ruta_id</h3>
+      <span class="tag">Uso principal</span>
+    </div>
+    <div class="field-grid">
+      <div class="field">
+        <label for="fEquipoRuta">equipo_ruta_id</label>
+        <input id="fEquipoRuta" type="text" placeholder="38607927">
+      </div>
+      <div class="field">
+        <label for="fFechaInicio">Fecha inicio</label>
+        <input id="fFechaInicio" type="date">
+      </div>
+      <div class="field">
+        <label for="fFechaFin">Fecha fin</label>
+        <input id="fFechaFin" type="date">
+      </div>
+      <div class="field">
+        <label for="fRutaIds">Ruta IDs (catálogo)</label>
+        <input id="fRutaIds" type="text" placeholder="1526568,1526571,...">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btnBuscar">Buscar en FORMAP</button>
+      <span class="hint" id="buscarHint">Los Ruta IDs se sacan del catálogo de FORMAP para el rango de fechas elegido.</span>
+    </div>
+  </div>
+
+  <div id="resultados">
+    <div class="empty-state">
+      <div class="glyph">◇</div>
+      Sin resultados todavía — conecta y lanza una búsqueda.
+    </div>
+  </div>
+</main>
+
+<footer>Puente FORMAP · construido sobre HTTP puro, sin navegador headless</footer>
+
+<dialog id="confirmDialog">
+  <h4>Confirmar cierre en FORMAP</h4>
+  <p id="confirmText"></p>
+  <div class="dialog-actions">
+    <button class="btn secondary" id="btnCancelar">Cancelar</button>
+    <button class="btn danger" id="btnConfirmar">Sí, cerrar</button>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let pendienteCierre = null;
+
+function cargarConfig(){
+  $('apiUrl').value = localStorage.getItem('formap_api_url') || location.origin;
+  $('serviceKey').value = localStorage.getItem('formap_service_key') || '';
+}
+function guardarConfig(){
+  localStorage.setItem('formap_api_url', $('apiUrl').value.trim().replace(/\/$/,''));
+  localStorage.setItem('formap_service_key', $('serviceKey').value.trim());
+}
+function apiUrl(){ return localStorage.getItem('formap_api_url') || location.origin; }
+function serviceKey(){ return localStorage.getItem('formap_service_key') || ''; }
+
+function toast(msg, tipo='info'){
+  const t = document.createElement('div');
+  t.className = 'toast ' + (tipo === 'error' ? 'err' : tipo === 'ok' ? 'ok' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 4200);
+}
+
+async function llamar(path, opts={}){
+  const resp = await fetch(apiUrl() + path, {
+    ...opts,
+    headers: { 'X-Service-Key': serviceKey(), 'Content-Type': 'application/json', ...(opts.headers||{}) },
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw { status: resp.status, data };
+  return data;
+}
+
+async function verificarSesion(){
+  const dot = $('sessionDot'), text = $('sessionText');
+  dot.className = 'dot';
+  text.textContent = 'verificando...';
+  try {
+    const r = await llamar('/api/formap/estado-sesion');
+    if (r.tiene_sesion) {
+      dot.className = 'dot ok';
+      text.textContent = `sesión activa · ${r.edad_horas ?? '?'}h`;
+    } else {
+      dot.className = 'dot warn';
+      text.textContent = 'sin sesión guardada';
+    }
+  } catch (e) {
+    dot.className = 'dot bad';
+    text.textContent = e.status === 401 ? 'clave inválida' : 'servicio no responde';
+  }
+}
+
+function fechaFormapDesde(inputDate){
+  if (!inputDate) return '';
+  const [y,m,d] = inputDate.split('-');
+  return `${m}/${d}/${y} 0:00:00`;
+}
+
+function renderResultados(hallazgos){
+  const cont = $('resultados');
+  if (!hallazgos || hallazgos.length === 0) {
+    cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Sin hallazgos para esos filtros.</div>`;
+    return;
+  }
+  cont.innerHTML = '';
+  hallazgos.forEach((h, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.animationDelay = (i * 0.04) + 's';
+    const titulo = h.observacion_valor || h.item_valor || h.item_label || `NC FORMAP ${h.nc_formap_id}`;
+    const cerrada = !!h.respuesta_comentario;
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="card-id">NC #${h.nc_formap_id} · ruta ${h.equipo_ruta_id || '—'}</div>
+          <div class="card-title">${titulo}</div>
+        </div>
+        <span class="badge ${cerrada ? 'closed' : 'info'}">${cerrada ? 'Con respuesta' : h.subestado_formap || h.estado_formap || 'Sin respuesta'}</span>
+      </div>
+      <div class="card-meta">
+        <div class="meta-item"><div class="k">Formulario</div><div class="v">${h.formulario || '—'}</div></div>
+        <div class="meta-item"><div class="k">Auditado por</div><div class="v">${h.auditado_por || '—'}</div></div>
+        <div class="meta-item"><div class="k">Fecha NC</div><div class="v">${h.fecha_nc || '—'}</div></div>
+      </div>
+      ${h.respuesta_comentario ? `<div class="card-comentario">${h.respuesta_comentario}</div>` : ''}
+      ${h.evidencias && h.evidencias.length ? `<div class="card-evid">${h.evidencias.map(e => `<a href="https://formap.co${(e.url||'').replace(/\\\\/g,'/')}" target="_blank" rel="noopener">${e.titulo || 'evidencia'}</a>`).join('')}</div>` : ''}
+      <div class="card-actions">
+        <button class="btn secondary btn-detalle" data-id="${h.nc_formap_id}">Ver detalle</button>
+        <button class="btn danger btn-cerrar" data-id="${h.nc_formap_id}">Cerrar en FORMAP</button>
+      </div>
+    `;
+    cont.appendChild(card);
+  });
+
+  cont.querySelectorAll('.btn-cerrar').forEach(btn => {
+    btn.addEventListener('click', () => abrirConfirmacion(btn.dataset.id));
+  });
+  cont.querySelectorAll('.btn-detalle').forEach(btn => {
+    btn.addEventListener('click', () => verDetalle(btn.dataset.id));
+  });
+}
+
+function abrirConfirmacion(ncFormapId){
+  pendienteCierre = ncFormapId;
+  $('confirmText').textContent = `Vas a marcar la NC #${ncFormapId} como resuelta directamente en FORMAP. Esta acción es EXPERIMENTAL — no se ha verificado end-to-end. ¿Continuar?`;
+  $('confirmDialog').showModal();
+}
+
+async function verDetalle(ncFormapId){
+  toast('Cargando detalle de NC #' + ncFormapId + '...');
+  try {
+    const r = await llamar('/api/formap/detalle/' + ncFormapId);
+    const w = window.open('', '_blank');
+    w.document.write(r.html);
+  } catch (e) {
+    toast('Error al cargar detalle: ' + (e.data?.detail || e.status), 'error');
+  }
+}
+
+$('btnConectar').addEventListener('click', () => { guardarConfig(); verificarSesion(); });
+
+$('btnBuscar').addEventListener('click', async () => {
+  guardarConfig();
+  const equipoRuta = $('fEquipoRuta').value.trim();
+  const rutaIds = $('fRutaIds').value.trim();
+  const fi = $('fFechaInicio').value, ff = $('fFechaFin').value;
+  if (!equipoRuta || !rutaIds || !fi || !ff) {
+    toast('Completa equipo_ruta_id, fechas y Ruta IDs.', 'error');
+    return;
+  }
+  const btn = $('btnBuscar');
+  btn.disabled = true; btn.textContent = 'Buscando...';
+  try {
+    const r = await llamar('/api/formap/buscar-por-ruta', {
+      method: 'POST',
+      body: JSON.stringify({
+        equipo_ruta_id: equipoRuta,
+        fecha_inicio: fechaFormapDesde(fi),
+        fecha_fin: fechaFormapDesde(ff),
+        ruta_ids: rutaIds,
+      }),
+    });
+    renderResultados(r.hallazgos);
+    toast(`${r.hallazgos.length} hallazgo(s) encontrado(s).`, 'ok');
+  } catch (e) {
+    if (e.data?.sesion_expirada) {
+      toast('La sesión de FORMAP expiró — hace falta relogin asistido.', 'error');
+    } else {
+      toast('Error: ' + (e.data?.detail || e.status), 'error');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Buscar en FORMAP';
+  }
+});
+
+$('btnCancelar').addEventListener('click', () => $('confirmDialog').close());
+$('btnConfirmar').addEventListener('click', async () => {
+  $('confirmDialog').close();
+  if (!pendienteCierre) return;
+  toast('Enviando cierre para NC #' + pendienteCierre + '...');
+  try {
+    const r = await llamar('/api/formap/cerrar', {
+      method: 'POST',
+      body: JSON.stringify({ nc_formap_id: pendienteCierre }),
+    });
+    toast(r.ok ? 'Cierre enviado correctamente.' : 'FORMAP respondió sin confirmar el cierre.', r.ok ? 'ok' : 'error');
+  } catch (e) {
+    toast('Error al cerrar: ' + (e.data?.detail || e.status), 'error');
+  }
+  pendienteCierre = null;
+});
+
+cargarConfig();
+if (serviceKey()) verificarSesion();
+</script>
+</body>
+</html>
