@@ -101,6 +101,25 @@ def debug_cookie_fingerprint(x_service_key: str = Header(default=None), authoriz
     }
 
 
+@app.get("/api/formap/debug-get-simple")
+def debug_get_simple(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """TEMPORAL — prueba un GET simple a NO_Conformidad/Index para ver si el 404
+    es específico de IndexPartial o un bloqueo general por origen (IP de Vercel)."""
+    requiere_service_key(x_service_key, authorization)
+
+    def _hacer():
+        cliente = _cliente()
+        resp = cliente.session.get("https://formap.co/NO_Conformidad/Index", timeout=20)
+        return {
+            "status_code": resp.status_code,
+            "url_final": resp.url,
+            "longitud": len(resp.text),
+            "primeros_500": resp.text[:500],
+        }
+
+    return _con_manejo_sesion(_hacer)
+
+
 @app.get("/api/formap/debug-html-crudo")
 def debug_html_crudo(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
     """TEMPORAL — para ver exactamente qué le responde FORMAP a Vercel (distinto
