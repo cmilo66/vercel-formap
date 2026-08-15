@@ -226,8 +226,12 @@
   dialog .dialog-actions{ display:flex; gap:10px; justify-content:flex-end; }
 
   #detalleDialog{
-    max-width: 620px; padding: 0; max-height: 82vh; display:flex; flex-direction:column;
+    max-width: 620px; padding: 0; max-height: 82vh;
   }
+  /* display:flex debe aplicar SOLO cuando showModal() lo abre — si se declara sin
+     el atributo [open], un selector por ID le gana en especificidad a la regla del
+     navegador "dialog:not([open]){display:none}" y el modal queda visible siempre. */
+  #detalleDialog[open]{ display:flex; flex-direction:column; }
   #detalleDialog .det-head{
     padding: 22px 26px 16px; border-bottom:1px solid var(--border);
     display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
