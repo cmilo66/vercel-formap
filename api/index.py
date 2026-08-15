@@ -218,6 +218,18 @@ def incidencias_por_ruta(equipo_ruta_id: str, x_service_key: str = Header(defaul
         raise HTTPException(status_code=500, detail=f"Error consultando bd_incidencias: {e}")
 
 
+@app.get("/api/incidencias/listado")
+def incidencias_listado(fecha_inicio: str, fecha_fin: str, estado: str = "", x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Solo lectura contra bd_incidencias — tabla de estado (abiertas y cerradas)
+    de las NC de FORMAP en un rango de fechas, para ver de un vistazo qué ya se
+    cerró y qué no. estado='' trae todas; 'abierta'/'cerrada' filtra."""
+    requiere_service_key(x_service_key, authorization)
+    try:
+        return {"nc": db_incidencias.listar_formap(fecha_inicio, fecha_fin, estado or None)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando bd_incidencias: {e}")
+
+
 # ── Cierre Periódico: escanea bd_incidencias + FORMAP, cierra SOLO con confirmación humana ──
 def _iso_a_formap(fecha_iso: str) -> str:
     y, m, d = fecha_iso.split("-")

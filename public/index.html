@@ -193,6 +193,24 @@
     margin-bottom:16px; font-family: var(--mono); font-size:12px; color: var(--text-dim);
   }
 
+  .tabla-nc-wrap{ margin-top:18px; overflow-x:auto; }
+  table.tabla-nc{ width:100%; border-collapse:collapse; font-size:12px; }
+  table.tabla-nc th{
+    text-align:left; font-family: var(--mono); font-size:10px; text-transform:uppercase;
+    letter-spacing:.06em; color: var(--text-faint); padding:9px 12px; border-bottom:1px solid var(--border-bright);
+    white-space:nowrap;
+  }
+  table.tabla-nc td{ padding:10px 12px; border-bottom:1px solid var(--border); color: var(--text-dim); vertical-align:top; }
+  table.tabla-nc tr:hover td{ background: rgba(255,255,255,.02); }
+  table.tabla-nc td.titulo{ color: var(--text); max-width:360px; }
+  .estado-pill{
+    font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em;
+    padding:3px 9px; white-space:nowrap; display:inline-block;
+  }
+  .estado-pill.abierta{ color: var(--amber); border:1px solid var(--amber-dim); background: rgba(255,176,32,.08); }
+  .estado-pill.cerrada{ color: var(--teal); border:1px solid var(--teal-dim); background: rgba(45,212,191,.08); }
+  .estado-pill.otro{ color: var(--text-dim); border:1px solid var(--border-bright); }
+
   .card{
     border:1px solid var(--border); background: var(--panel-raised);
     padding:18px 20px; opacity:0; animation: rise .4s ease forwards;
@@ -472,6 +490,36 @@
       <p>Escanea las NC abiertas de FORMAP en bd_incidencias dentro de un rango de fechas, las busca en FORMAP, y te muestra las que ya tienen respuesta/cierre allá — <strong>nada se cierra automáticamente</strong>, tú confirmas cada una (o todas) antes de escribir en producción.</p>
     </div>
 
+    <div class="panel" style="animation-delay:.05s">
+      <div class="panel-head">
+        <h3>Estado de NC (abiertas y cerradas)</h3>
+        <span class="tag">Solo lectura</span>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Fecha inicio</label>
+          <div class="dpicker" id="dpTablaFechaInicio"></div>
+        </div>
+        <div class="field">
+          <label>Fecha fin</label>
+          <div class="dpicker" id="dpTablaFechaFin"></div>
+        </div>
+        <div class="field">
+          <label for="fTablaEstado">Estado</label>
+          <select id="fTablaEstado">
+            <option value="">Todas</option>
+            <option value="abierta">Abiertas</option>
+            <option value="cerrada">Cerradas</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" id="btnVerTabla">Ver tabla</button>
+        <span class="hint" id="tablaHint">Vista rápida de qué NC de FORMAP ya están cerradas en tu sistema y cuáles no.</span>
+      </div>
+      <div id="tablaEstadoNC"></div>
+    </div>
+
     <div class="panel" style="animation-delay:.1s">
       <div class="panel-head">
         <h3>Escanear rango de fechas</h3>
@@ -747,6 +795,8 @@ crearDatePicker('dpFechaInicio');
 crearDatePicker('dpFechaFin');
 crearDatePicker('dpCPFechaInicio');
 crearDatePicker('dpCPFechaFin');
+crearDatePicker('dpTablaFechaInicio');
+crearDatePicker('dpTablaFechaFin');
 
 function fechaFormapDesde(inputDate){
   if (!inputDate) return '';
@@ -987,6 +1037,66 @@ function cambiarVista(vista){
   $('vistaCierrePeriodico').style.display = esBuscador ? 'none' : 'block';
   $('navBuscador').classList.toggle('active', esBuscador);
   $('navCierrePeriodico').classList.toggle('active', !esBuscador);
+}
+
+// ── Tabla de estado de NC (abiertas y cerradas) — solo lectura ──────────────
+$('btnVerTabla').addEventListener('click', async () => {
+  const fi = datePickers.dpTablaFechaInicio.valor, ff = datePickers.dpTablaFechaFin.valor;
+  const estado = $('fTablaEstado').value;
+  if (!fi || !ff) {
+    toast('Elige fecha inicio y fin.', 'error');
+    return;
+  }
+  const btn = $('btnVerTabla');
+  btn.disabled = true;
+  btn.textContent = 'Consultando...';
+  try {
+    const r = await llamar(`/api/incidencias/listado?fecha_inicio=${fi}&fecha_fin=${ff}&estado=${encodeURIComponent(estado)}`);
+    renderTablaEstadoNC(r.nc || []);
+  } catch (e) {
+    toast('Error: ' + (e.data?.detail || e.status), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Ver tabla';
+  }
+});
+
+function claseEstado(estado){
+  if (estado === 'abierta') return 'abierta';
+  if (estado === 'cerrada') return 'cerrada';
+  return 'otro';
+}
+
+function renderTablaEstadoNC(filas){
+  const cont = $('tablaEstadoNC');
+  if (filas.length === 0) {
+    cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Sin NC para esos filtros.</div>`;
+    return;
+  }
+  const abiertas = filas.filter(f => f.estado_actual === 'abierta').length;
+  const cerradas = filas.filter(f => f.estado_actual === 'cerrada').length;
+  cont.innerHTML = `
+    <div class="cp-summary" style="margin-top:16px;">
+      <span>${filas.length} NC · ${cerradas} cerradas · ${abiertas} abiertas${filas.length - abiertas - cerradas > 0 ? ` · ${filas.length - abiertas - cerradas} en otro estado` : ''}</span>
+    </div>
+    <div class="tabla-nc-wrap">
+      <table class="tabla-nc">
+        <thead>
+          <tr><th>Estado</th><th>Título</th><th>Ruta</th><th>Creada</th><th>Actualizada</th></tr>
+        </thead>
+        <tbody>
+          ${filas.map(f => `
+            <tr>
+              <td><span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(f.estado_actual || '—')}</span></td>
+              <td class="titulo">${escapeHtml(f.titulo || '(sin título)')}</td>
+              <td>${escapeHtml(f.equipo_ruta_id || '—')}</td>
+              <td>${escapeHtml(formatearFechaCorta(f.creado_en))}</td>
+              <td>${escapeHtml(formatearFechaCorta(f.actualizado_en))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 // ── Cierre Periódico: escanear bd_incidencias + FORMAP, revisar y confirmar ──

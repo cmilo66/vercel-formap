@@ -87,3 +87,33 @@ def listar_abiertas_formap(fecha_inicio: str, fecha_fin: str) -> list[dict]:
             return cur.fetchall()
     finally:
         conn.close()
+
+
+def listar_formap(fecha_inicio: str, fecha_fin: str, estado: str | None = None) -> list[dict]:
+    """Lectura: tabla de estado — todas las NC con fuente='formap' creadas en el
+    rango dado, sin importar si están abiertas o cerradas (a diferencia de
+    listar_abiertas_formap, que es solo el insumo del escaneo de cierre). `estado`
+    filtra opcionalmente por 'abierta'/'cerrada'/etc.; None trae todas.
+    El volumen total del sistema es pequeño (cientos de filas, no cientos de
+    miles) — un filtro simple por rango basta, no hace falta paginación por
+    cursor aquí."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cur:
+            condiciones = ["fuente = 'formap'", "creado_en BETWEEN %s AND %s"]
+            parametros = [f"{fecha_inicio} 00:00:00", f"{fecha_fin} 23:59:59"]
+            if estado:
+                condiciones.append("estado_actual = %s")
+                parametros.append(estado)
+            cur.execute(
+                f"""
+                SELECT id, titulo, equipo_ruta_id, estado_actual, creado_en, actualizado_en
+                FROM no_conformidades
+                WHERE {' AND '.join(condiciones)}
+                ORDER BY creado_en DESC
+                """,
+                parametros,
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()
