@@ -188,6 +188,39 @@
     background: var(--bg); border-left:2px solid var(--teal); line-height:1.5;
   }
   .cp-card-actions{ display:flex; justify-content:flex-end; margin-top:12px; }
+
+  /* ── Miniaturas de evidencia + documentos (mismo criterio que nc_deploy) ── */
+  .adjuntos-grid{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .adjunto-foto-thumb{
+    width:56px; height:56px; cursor:pointer; border:1px solid var(--border-bright);
+    overflow:hidden; flex-shrink:0; background: var(--bg);
+  }
+  .adjunto-foto-thumb img{ width:100%; height:100%; object-fit:cover; display:block; transition: opacity .15s; }
+  .adjunto-foto-thumb:hover img{ opacity:.75; }
+  .adjunto-foto-thumb.roto{ display:flex; align-items:center; justify-content:center; }
+  .adjunto-foto-thumb.roto img{ display:none; }
+  .adjunto-foto-thumb.roto::after{ content:'✕'; color: var(--text-faint); font-size:14px; }
+  .adjunto-doc-chip{
+    display:inline-flex; align-items:center; gap:6px; font-family: var(--mono); font-size:11px;
+    color: var(--text-dim); border:1px solid var(--border-bright); padding:6px 10px;
+    text-decoration:none; height:56px; box-sizing:border-box; max-width:160px;
+  }
+  .adjunto-doc-chip:hover{ border-color: var(--amber); color: var(--amber); }
+  .adjunto-doc-chip span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  #fotoViewerDialog{
+    max-width:min(92vw, 900px); width:auto; padding:0; background:transparent; border:none;
+    box-shadow:none;
+  }
+  #fotoViewerDialog img{ max-width:100%; max-height:82vh; display:block; margin:0 auto; }
+  #fotoViewerDialog .foto-viewer-close{
+    position:absolute; top:-40px; right:0; background: var(--panel-raised); border:1px solid var(--border-bright);
+    color: var(--text); width:32px; height:32px; cursor:pointer; font-size:15px;
+  }
+  #fotoViewerDialog .foto-viewer-close:hover{ border-color: var(--amber); color: var(--amber); }
+  .foto-viewer-nombre{
+    text-align:center; color: var(--text-dim); font-family: var(--mono); font-size:11px; margin-top:10px;
+  }
   .cp-summary{
     display:flex; justify-content:space-between; align-items:center; gap:12px;
     margin-bottom:16px; font-family: var(--mono); font-size:12px; color: var(--text-dim);
@@ -602,6 +635,12 @@
   </div>
 </dialog>
 
+<dialog id="fotoViewerDialog">
+  <button type="button" id="fotoViewerClose" class="foto-viewer-close">✕</button>
+  <img id="fotoViewerImg" src="" alt="Evidencia">
+  <div id="fotoViewerNombre" class="foto-viewer-nombre"></div>
+</dialog>
+
 <script>
 const $ = (id) => document.getElementById(id);
 let pendienteCierre = null;
@@ -829,6 +868,43 @@ function escapeHtml(s){
   }[c]));
 }
 
+// ── Evidencias: miniatura + visor de fotos inline, mismo criterio que nc_deploy
+// (DetalleNC.js — imagen = miniatura clicable que abre en grande, documento =
+// chip de descarga) — nunca se navega a otra pestaña para ver una foto.
+function esDocumentoAdjunto(url, tipoHint){
+  if (tipoHint) return tipoHint === 'documento';
+  return /\.pdf$/i.test(url || '');
+}
+
+function renderAdjuntoHtml(url, nombre, tipoHint){
+  if (!url) return '';
+  const nombreSeguro = escapeHtml(nombre || 'Adjunto');
+  const urlSegura = escapeHtml(url);
+  if (esDocumentoAdjunto(url, tipoHint)) {
+    return `<a href="${urlSegura}" target="_blank" rel="noopener" class="adjunto-doc-chip" title="Descargar ${nombreSeguro}">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span>${nombreSeguro}</span>
+    </a>`;
+  }
+  return `<div class="adjunto-foto-thumb" data-url="${urlSegura}" data-nombre="${nombreSeguro}" title="${nombreSeguro}">
+    <img src="${urlSegura}" loading="lazy" onerror="this.parentElement.classList.add('roto')">
+  </div>`;
+}
+
+function activarVisorFotos(contenedor){
+  contenedor.querySelectorAll('.adjunto-foto-thumb').forEach(el => {
+    el.addEventListener('click', () => abrirFotoViewer(el.dataset.url, el.dataset.nombre));
+  });
+}
+
+function abrirFotoViewer(url, nombre){
+  $('fotoViewerImg').src = url;
+  $('fotoViewerImg').alt = nombre || 'Evidencia';
+  $('fotoViewerNombre').textContent = nombre || '';
+  $('fotoViewerDialog').showModal();
+}
+$('fotoViewerClose').addEventListener('click', () => $('fotoViewerDialog').close());
+
 function renderResultados(hallazgos){
   const cont = $('resultados');
   if (!hallazgos || hallazgos.length === 0) {
@@ -856,7 +932,7 @@ function renderResultados(hallazgos){
         <div class="meta-item"><div class="k">Fecha NC</div><div class="v">${escapeHtml(h.fecha_nc || '—')}</div></div>
       </div>
       ${h.respuesta_comentario ? `<div class="card-comentario">${escapeHtml(h.respuesta_comentario)}</div>` : ''}
-      ${h.evidencias && h.evidencias.length ? `<div class="card-evid">${h.evidencias.map(e => `<a href="${escapeHtml('https://formap.co' + (e.url||'').replace(/\\\\/g,'/'))}" target="_blank" rel="noopener">${escapeHtml(e.titulo || 'evidencia')}</a>`).join('')}</div>` : ''}
+      ${h.evidencias && h.evidencias.length ? `<div class="adjuntos-grid">${h.evidencias.map(e => renderAdjuntoHtml('https://formap.co' + (e.url||'').replace(/\\\\/g,'/'), e.titulo)).join('')}</div>` : ''}
       <div class="card-nc" id="ncSys-${escapeHtml(h.nc_formap_id)}" hidden></div>
       <div class="card-actions">
         <button class="btn secondary btn-detalle" data-id="${escapeHtml(h.nc_formap_id)}">Ver detalle</button>
@@ -864,6 +940,7 @@ function renderResultados(hallazgos){
       </div>
     `;
     cont.appendChild(card);
+    activarVisorFotos(card);
   });
 
   cargarCoincidenciasEnMiSistema(hallazgos);
@@ -962,12 +1039,13 @@ async function verDetalle(ncFormapId){
           <span class="det-item-estado">${escapeHtml(o.estado || '—')}</span>
         </div>
         ${o.comentario ? `<div class="det-item-comentario">${escapeHtml(o.comentario)}</div>` : ''}
-        <div class="det-item-adjuntos">
-          ${o.adjunto_url ? `<a href="${escapeHtml(o.adjunto_url)}" target="_blank" rel="noopener">${escapeHtml(o.adjunto_nombre || 'adjunto')}</a>` : ''}
-          ${o.adjunto2_url ? `<a href="${escapeHtml(o.adjunto2_url)}" target="_blank" rel="noopener">${escapeHtml(o.adjunto2_nombre || 'adjunto 2')}</a>` : ''}
+        <div class="adjuntos-grid">
+          ${renderAdjuntoHtml(o.adjunto_url, o.adjunto_nombre)}
+          ${renderAdjuntoHtml(o.adjunto2_url, o.adjunto2_nombre)}
         </div>
       </div>
     `).join('');
+    activarVisorFotos($('detBody'));
   } catch (e) {
     $('detSub').textContent = '';
     $('detBody').innerHTML = `<div class="det-empty">Error al cargar detalle: ${escapeHtml(e.data?.detail || e.status)}</div>`;
@@ -1216,13 +1294,14 @@ async function toggleHistorialBD(btn){
           </div>
           ${h.comentario ? `<div class="det-item-comentario">${escapeHtml(h.comentario)}</div>` : ''}
           ${h.fotos && h.fotos.length ? `
-            <div class="det-item-adjuntos">
-              ${h.fotos.map(foto => `<a href="${escapeHtml(foto.dropbox_url)}" target="_blank" rel="noopener">${escapeHtml(foto.nombre_original || 'evidencia')}</a>`).join('')}
+            <div class="adjuntos-grid">
+              ${h.fotos.map(foto => renderAdjuntoHtml(foto.dropbox_url, foto.nombre_original, foto.tipo)).join('')}
             </div>
           ` : ''}
         </div>
       `).join('')}
     `;
+    activarVisorFotos(panel);
     panel.dataset.cargado = '1';
   } catch (e) {
     panel.innerHTML = `<div class="det-empty">Error al cargar historial: ${escapeHtml(e.data?.detail || e.status)}</div>`;
