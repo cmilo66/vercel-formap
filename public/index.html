@@ -593,7 +593,7 @@ crearDatePicker('dpFechaFin');
 function fechaFormapDesde(inputDate){
   if (!inputDate) return '';
   const [y,m,d] = inputDate.split('-');
-  return `${m}/${d}/${y} 0:00:00`;
+  return `${d}/${m}/${y} 0:00:00`;
 }
 
 function renderResultados(hallazgos){
