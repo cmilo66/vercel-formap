@@ -209,6 +209,7 @@
   }
   .estado-pill.abierta{ color: var(--amber); border:1px solid var(--amber-dim); background: rgba(255,176,32,.08); }
   .estado-pill.cerrada{ color: var(--teal); border:1px solid var(--teal-dim); background: rgba(45,212,191,.08); }
+  .estado-pill.parcial{ color: #9fb4ff; border:1px solid #3a4a8a; background: rgba(159,180,255,.08); }
   .estado-pill.otro{ color: var(--text-dim); border:1px solid var(--border-bright); }
 
   .card{
@@ -1016,10 +1017,23 @@ function cambiarVista(vista){
   $('navCierrePeriodico').classList.toggle('active', !esBuscador);
 }
 
+// Flujo real de nc_deploy: abierta -> en_proceso -> parcialmente_cerrada -> cerrada -> archivada.
+// "parcialmente_cerrada" y "archivada" NO son "abiertas" — ya se hizo el trabajo,
+// solo faltan trámites (confirmador) o ya quedaron archivadas tras cerrarse.
+const ESTADOS_NC = {
+  abierta:              { label: 'Abierta',              clase: 'abierta' },
+  en_proceso:           { label: 'En proceso',           clase: 'abierta' },
+  parcialmente_cerrada: { label: 'Parcialmente cerrada',  clase: 'parcial' },
+  cerrada:              { label: 'Cerrada',               clase: 'cerrada' },
+  archivada:            { label: 'Archivada',             clase: 'cerrada' },
+};
+
 function claseEstado(estado){
-  if (estado === 'abierta') return 'abierta';
-  if (estado === 'cerrada') return 'cerrada';
-  return 'otro';
+  return (ESTADOS_NC[estado] || { clase: 'otro' }).clase;
+}
+
+function etiquetaEstado(estado){
+  return (ESTADOS_NC[estado] || { label: estado || '—' }).label;
 }
 
 function renderTablaEstadoNC(filas){
@@ -1028,11 +1042,15 @@ function renderTablaEstadoNC(filas){
     cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Sin NC para esos filtros.</div>`;
     return;
   }
-  const abiertas = filas.filter(f => f.estado_actual === 'abierta').length;
-  const cerradas = filas.filter(f => f.estado_actual === 'cerrada').length;
+  const conteos = {};
+  filas.forEach(f => { conteos[f.estado_actual] = (conteos[f.estado_actual] || 0) + 1; });
+  const resumen = Object.entries(conteos)
+    .sort((a, b) => b[1] - a[1])
+    .map(([estado, n]) => `${n} ${etiquetaEstado(estado).toLowerCase()}`)
+    .join(' · ');
   cont.innerHTML = `
     <div class="cp-summary" style="margin-top:16px;">
-      <span>${filas.length} NC · ${cerradas} cerradas · ${abiertas} abiertas${filas.length - abiertas - cerradas > 0 ? ` · ${filas.length - abiertas - cerradas} en otro estado` : ''}</span>
+      <span>${filas.length} NC · ${resumen}</span>
     </div>
     <div class="tabla-nc-wrap">
       <table class="tabla-nc">
@@ -1042,7 +1060,7 @@ function renderTablaEstadoNC(filas){
         <tbody>
           ${filas.map(f => `
             <tr>
-              <td><span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(f.estado_actual || '—')}</span></td>
+              <td><span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(etiquetaEstado(f.estado_actual))}</span></td>
               <td class="titulo">${escapeHtml(f.titulo || '(sin título)')}</td>
               <td>${escapeHtml(f.equipo_ruta_id || '—')}</td>
               <td>${escapeHtml(formatearFechaCorta(f.creado_en))}</td>
