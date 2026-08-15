@@ -17,6 +17,12 @@ import pymysql
 
 BASE_DATOS_PERMITIDA = "bd_incidencias"
 
+# centros_operativos.id = 1 -> 'MANTENIMIENTO ATLÁNTICO AIR-E'. Este servicio es
+# exclusivo de ese centro operativo (mismo alcance que ya se fuerza del lado de
+# FORMAP con CONTRATISTA_FSCR) -- bd_incidencias tiene NC de muchos otros
+# centros operativos que no son de este panel.
+CENTRO_OPERATIVO_PERMITIDO = 1
+
 
 def conectar():
     return pymysql.connect(
@@ -55,10 +61,10 @@ def buscar_por_equipo_ruta_id(equipo_ruta_id: str) -> list[dict]:
                     ORDER BY h2.fecha DESC, h2.id DESC
                     LIMIT 1
                 )
-                WHERE nc.equipo_ruta_id = %s
+                WHERE nc.equipo_ruta_id = %s AND nc.centro_operativo_id = %s
                 ORDER BY nc.creado_en DESC
                 """,
-                (equipo_ruta_id,),
+                (equipo_ruta_id, CENTRO_OPERATIVO_PERMITIDO),
             )
             return cur.fetchall()
     finally:
@@ -79,10 +85,11 @@ def listar_abiertas_formap(fecha_inicio: str, fecha_fin: str) -> list[dict]:
                 FROM no_conformidades
                 WHERE fuente = 'formap' AND estado_actual = 'abierta'
                   AND equipo_ruta_id IS NOT NULL AND equipo_ruta_id != ''
+                  AND centro_operativo_id = %s
                   AND creado_en BETWEEN %s AND %s
                 ORDER BY creado_en
                 """,
-                (f"{fecha_inicio} 00:00:00", f"{fecha_fin} 23:59:59"),
+                (CENTRO_OPERATIVO_PERMITIDO, f"{fecha_inicio} 00:00:00", f"{fecha_fin} 23:59:59"),
             )
             return cur.fetchall()
     finally:
@@ -100,8 +107,8 @@ def listar_formap(fecha_inicio: str, fecha_fin: str, estado: str | None = None) 
     conn = conectar()
     try:
         with conn.cursor() as cur:
-            condiciones = ["fuente = 'formap'", "creado_en BETWEEN %s AND %s"]
-            parametros = [f"{fecha_inicio} 00:00:00", f"{fecha_fin} 23:59:59"]
+            condiciones = ["fuente = 'formap'", "centro_operativo_id = %s", "creado_en BETWEEN %s AND %s"]
+            parametros = [CENTRO_OPERATIVO_PERMITIDO, f"{fecha_inicio} 00:00:00", f"{fecha_fin} 23:59:59"]
             if estado:
                 condiciones.append("estado_actual = %s")
                 parametros.append(estado)
