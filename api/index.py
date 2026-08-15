@@ -101,6 +101,35 @@ def debug_cookie_fingerprint(x_service_key: str = Header(default=None), authoriz
     }
 
 
+@app.get("/api/formap/debug-html-crudo")
+def debug_html_crudo(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """TEMPORAL — para ver exactamente qué le responde FORMAP a Vercel (distinto
+    a lo que le responde a una corrida local), sin pasar por el parser."""
+    requiere_service_key(x_service_key, authorization)
+
+    def _hacer():
+        cliente = _cliente()
+        resp = cliente.session.post(
+            "https://formap.co/NO_Conformidad/IndexPartial",
+            data={
+                "FechaInicio": "01/07/2026 0:00:00", "FechaFin": "31/07/2026 0:00:00",
+                "RutaId": "1526568,1526571,1526572,1526573,1526578,1526579,1526580,1526583,1526584,1526585,1526594,1526595,1526596,1526597,1531923",
+                "tipoeq": TIPOEQ_TODOS, "SubEstate": "", "searchString": "", "sortOrder": "",
+                "CantidadMostrar": "10", "Contratista": CONTRATISTA_FSCR,
+            },
+            timeout=20,
+        )
+        return {
+            "status_code": resp.status_code,
+            "url_final": resp.url,
+            "longitud": len(resp.text),
+            "primeros_1000": resp.text[:1000],
+            "headers_respuesta": dict(resp.headers),
+        }
+
+    return _con_manejo_sesion(_hacer)
+
+
 @app.get("/api/formap/estado-sesion")
 def estado_sesion(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
     requiere_service_key(x_service_key, authorization)
