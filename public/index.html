@@ -193,16 +193,18 @@
     margin-bottom:16px; font-family: var(--mono); font-size:12px; color: var(--text-dim);
   }
 
-  .tabla-nc-wrap{ margin-top:18px; overflow-x:auto; }
+  .tabla-nc-wrap{ margin-top:18px; overflow-x:auto; max-height:70vh; overflow-y:auto; }
   table.tabla-nc{ width:100%; border-collapse:collapse; font-size:12px; }
   table.tabla-nc th{
     text-align:left; font-family: var(--mono); font-size:10px; text-transform:uppercase;
     letter-spacing:.06em; color: var(--text-faint); padding:9px 12px; border-bottom:1px solid var(--border-bright);
-    white-space:nowrap;
+    white-space:nowrap; position:sticky; top:0; background: var(--panel); z-index:1;
   }
   table.tabla-nc td{ padding:10px 12px; border-bottom:1px solid var(--border); color: var(--text-dim); vertical-align:top; }
   table.tabla-nc tr:hover td{ background: rgba(255,255,255,.02); }
   table.tabla-nc td.titulo{ color: var(--text); max-width:360px; }
+  table.tabla-nc-comparada tr.fila-candidata td{ background: rgba(255,176,32,.05); }
+  table.tabla-nc-comparada tr.fila-candidata:hover td{ background: rgba(255,176,32,.09); }
   .estado-pill{
     font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em;
     padding:3px 9px; white-space:nowrap; display:inline-block;
@@ -516,9 +518,8 @@
       </div>
       <div class="actions">
         <button class="btn" id="btnEscanear">Escanear</button>
-        <span class="hint" id="escanearHint">Trae la tabla de estado (abiertas/cerradas) y, aparte, revisa las abiertas contra FORMAP en busca de candidatas a cerrar.</span>
+        <span class="hint" id="escanearHint">Cruza bd_incidencias con FORMAP, ambos sistemas lado a lado en una sola tabla.</span>
       </div>
-      <div id="tablaEstadoNC"></div>
     </div>
 
     <div id="cpResultados">
@@ -1036,46 +1037,9 @@ function etiquetaEstado(estado){
   return (ESTADOS_NC[estado] || { label: estado || '—' }).label;
 }
 
-function renderTablaEstadoNC(filas){
-  const cont = $('tablaEstadoNC');
-  if (filas.length === 0) {
-    cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Sin NC para esos filtros.</div>`;
-    return;
-  }
-  const conteos = {};
-  filas.forEach(f => { conteos[f.estado_actual] = (conteos[f.estado_actual] || 0) + 1; });
-  const resumen = Object.entries(conteos)
-    .sort((a, b) => b[1] - a[1])
-    .map(([estado, n]) => `${n} ${etiquetaEstado(estado).toLowerCase()}`)
-    .join(' · ');
-  cont.innerHTML = `
-    <div class="cp-summary" style="margin-top:16px;">
-      <span>${filas.length} NC · ${resumen}</span>
-    </div>
-    <div class="tabla-nc-wrap">
-      <table class="tabla-nc">
-        <thead>
-          <tr><th>Estado</th><th>Título</th><th>Ruta</th><th>Creada</th><th>Actualizada</th></tr>
-        </thead>
-        <tbody>
-          ${filas.map(f => `
-            <tr>
-              <td><span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(etiquetaEstado(f.estado_actual))}</span></td>
-              <td class="titulo">${escapeHtml(f.titulo || '(sin título)')}</td>
-              <td>${escapeHtml(f.equipo_ruta_id || '—')}</td>
-              <td>${escapeHtml(formatearFechaCorta(f.creado_en))}</td>
-              <td>${escapeHtml(formatearFechaCorta(f.actualizado_en))}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-// ── Cierre Periódico: escanear bd_incidencias + FORMAP, revisar y confirmar ──
+// ── Cierre Periódico: tabla unificada bd_incidencias ⇄ FORMAP, revisar y confirmar ──
 let pendienteCierreProd = null;
-let candidatosCP = [];
+let filasCP = [];
 
 $('btnEscanear').addEventListener('click', async () => {
   const fi = datePickers.dpCPFechaInicio.valor, ff = datePickers.dpCPFechaFin.valor;
@@ -1085,21 +1049,12 @@ $('btnEscanear').addEventListener('click', async () => {
   }
   const btn = $('btnEscanear');
   btn.disabled = true;
-
-  btn.textContent = 'Consultando tabla de estado...';
+  btn.textContent = 'Cruzando bd_incidencias con FORMAP...';
   try {
     const estado = $('fTablaEstado').value;
-    const rTabla = await llamar(`/api/incidencias/listado?fecha_inicio=${fi}&fecha_fin=${ff}&estado=${encodeURIComponent(estado)}`);
-    renderTablaEstadoNC(rTabla.nc || []);
-  } catch (e) {
-    toast('Error consultando la tabla: ' + (e.data?.detail || e.status), 'error');
-  }
-
-  btn.textContent = 'Escaneando contra FORMAP...';
-  try {
-    const r = await llamar(`/api/cierre-periodico/escanear?fecha_inicio=${fi}&fecha_fin=${ff}`);
-    candidatosCP = r.candidatos || [];
-    renderCandidatosCP(r.total_revisadas ?? 0);
+    const r = await llamar(`/api/cierre-periodico/tabla?fecha_inicio=${fi}&fecha_fin=${ff}&estado=${encodeURIComponent(estado)}`);
+    filasCP = r.filas || [];
+    renderTablaCP();
   } catch (e) {
     if (e.data?.sesion_expirada) {
       toast('La sesión de FORMAP expiró — hace falta relogin asistido.', 'error');
@@ -1111,69 +1066,112 @@ $('btnEscanear').addEventListener('click', async () => {
   }
 });
 
-function renderCandidatosCP(totalRevisadas){
+function renderTablaCP(){
   const cont = $('cpResultados');
-  if (candidatosCP.length === 0) {
-    cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>${totalRevisadas} NC abierta(s) revisada(s) en bd_incidencias — ninguna tiene respuesta/cierre en FORMAP todavía.</div>`;
+  if (filasCP.length === 0) {
+    cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Sin NC para esos filtros.</div>`;
     return;
   }
+  const candidatas = filasCP.filter(f => f.es_candidata);
+  const conteos = {};
+  filasCP.forEach(f => { conteos[f.estado_actual] = (conteos[f.estado_actual] || 0) + 1; });
+  const resumenEstados = Object.entries(conteos)
+    .sort((a, b) => b[1] - a[1])
+    .map(([estado, n]) => `${n} ${etiquetaEstado(estado).toLowerCase()}`)
+    .join(' · ');
+
   cont.innerHTML = `
     <div class="cp-summary">
-      <span>${candidatosCP.length} de ${totalRevisadas} NC ya tienen respuesta en FORMAP</span>
-      <button class="btn danger" id="btnCerrarTodas" style="padding:8px 16px;">Cerrar todas (${candidatosCP.length})</button>
+      <span>${filasCP.length} NC · ${resumenEstados}${candidatas.length ? ` · <strong style="color:var(--amber);">${candidatas.length} lista(s) para cerrar</strong>` : ''}</span>
+      ${candidatas.length ? `<button class="btn danger" id="btnCerrarTodas" style="padding:8px 16px;">Cerrar todas (${candidatas.length})</button>` : ''}
+    </div>
+    <div class="field" style="max-width:320px; margin-bottom:14px;">
+      <input id="fFiltroTabla" type="text" placeholder="Filtrar por título o ruta...">
+    </div>
+    <div class="tabla-nc-wrap">
+      <table class="tabla-nc tabla-nc-comparada">
+        <thead>
+          <tr>
+            <th>bd_incidencias</th><th>Título</th><th>Ruta</th>
+            <th>FORMAP</th><th>Comentario FORMAP</th><th>Acción</th>
+          </tr>
+        </thead>
+        <tbody id="tbodyCP"></tbody>
+      </table>
     </div>
   `;
-  candidatosCP.forEach((c, i) => {
-    const card = document.createElement('div');
-    card.className = 'cp-card';
-    card.style.animationDelay = (i * 0.04) + 's';
-    card.dataset.ncId = c.nc_id;
-    card.innerHTML = `
-      <div class="cp-card-top">
-        <div>
-          <div class="cp-card-nc">bd_incidencias · ruta ${escapeHtml(c.equipo_ruta_id)} · NC FORMAP #${escapeHtml(c.nc_formap_id)}</div>
-          <div class="cp-card-titulo">${escapeHtml(c.nc_titulo || '(sin título)')}</div>
-        </div>
-        <span class="cp-card-score">match ${Math.round((c.score_match || 0) * 100)}%</span>
-      </div>
-      <div class="cp-card-formap">${escapeHtml(c.formap_comentario)}</div>
-      <div class="cp-card-actions">
-        <button class="btn danger btn-cp-cerrar" style="padding:8px 16px;">Cerrar esta NC</button>
-      </div>
-    `;
-    card.querySelector('.btn-cp-cerrar').addEventListener('click', () => abrirConfirmacionCP(c));
-    cont.appendChild(card);
+
+  pintarFilasCP(filasCP);
+  $('fFiltroTabla').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const filtradas = !q ? filasCP : filasCP.filter(f =>
+      (f.titulo || '').toLowerCase().includes(q) || (f.equipo_ruta_id || '').toLowerCase().includes(q)
+    );
+    pintarFilasCP(filtradas);
   });
-  $('btnCerrarTodas').addEventListener('click', () => abrirConfirmacionCP(null));
+
+  if (candidatas.length) {
+    $('btnCerrarTodas').addEventListener('click', () => abrirConfirmacionCP(null));
+  }
 }
 
-function abrirConfirmacionCP(candidato){
-  pendienteCierreProd = candidato; // null = cerrar todas
-  $('confirmCierreProdText').textContent = candidato
-    ? `Vas a cerrar en bd_incidencias (producción) la NC "${candidato.nc_titulo}", usando la respuesta de FORMAP como evidencia. Esta acción queda registrada en el historial y no se puede deshacer desde el panel. ¿Continuar?`
-    : `Vas a cerrar en bd_incidencias (producción) las ${candidatosCP.length} NC listadas, una por una. Cada cierre queda registrado en el historial y no se puede deshacer desde el panel. ¿Continuar?`;
+function pintarFilasCP(filas){
+  const tbody = $('tbodyCP');
+  if (filas.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-faint);">Sin coincidencias para ese filtro.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filas.map(f => {
+    const formap = f.formap;
+    const filaClase = f.es_candidata ? 'fila-candidata' : '';
+    return `
+      <tr class="${filaClase}" data-nc-id="${escapeHtml(f.nc_id)}">
+        <td><span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(etiquetaEstado(f.estado_actual))}</span></td>
+        <td class="titulo">${escapeHtml(f.titulo || '(sin título)')}</td>
+        <td>${escapeHtml(f.equipo_ruta_id || '—')}</td>
+        <td>${formap ? escapeHtml(formap.subestado_formap || formap.estado_formap || '—') : '<span style="color:var(--text-faint);">sin match</span>'}</td>
+        <td class="titulo" style="max-width:280px;">${formap?.comentario ? escapeHtml(formap.comentario) : '<span style="color:var(--text-faint);">—</span>'}</td>
+        <td>${f.es_candidata ? `<button class="btn danger btn-cp-cerrar" style="padding:6px 12px; font-size:11px;">Cerrar</button>` : '—'}</td>
+      </tr>
+    `;
+  }).join('');
+  tbody.querySelectorAll('.btn-cp-cerrar').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ncId = btn.closest('tr').dataset.ncId;
+      const fila = filasCP.find(f => f.nc_id === ncId);
+      if (fila) abrirConfirmacionCP(fila);
+    });
+  });
+}
+
+function abrirConfirmacionCP(fila){
+  pendienteCierreProd = fila; // null = cerrar todas las candidatas
+  const candidatas = filasCP.filter(f => f.es_candidata);
+  $('confirmCierreProdText').textContent = fila
+    ? `Vas a cerrar en bd_incidencias (producción) la NC "${fila.titulo}", usando la respuesta de FORMAP como evidencia. Esta acción queda registrada en el historial y no se puede deshacer desde el panel. ¿Continuar?`
+    : `Vas a cerrar en bd_incidencias (producción) las ${candidatas.length} NC listadas, una por una. Cada cierre queda registrado en el historial y no se puede deshacer desde el panel. ¿Continuar?`;
   $('confirmCierreProdDialog').showModal();
 }
 
 $('btnCPCancelar').addEventListener('click', () => $('confirmCierreProdDialog').close());
 $('btnCPConfirmar').addEventListener('click', async () => {
   $('confirmCierreProdDialog').close();
-  const lote = pendienteCierreProd ? [pendienteCierreProd] : candidatosCP.slice();
+  const lote = pendienteCierreProd ? [pendienteCierreProd] : filasCP.filter(f => f.es_candidata);
   pendienteCierreProd = null;
   let ok = 0, fallidas = 0;
-  for (const c of lote) {
+  for (const f of lote) {
     try {
       const r = await llamar('/api/cierre-periodico/cerrar', {
         method: 'POST',
         body: JSON.stringify({
-          nc_id: c.nc_id, nc_formap_id: c.nc_formap_id, equipo_ruta_id: c.equipo_ruta_id,
-          formap_comentario: c.formap_comentario, formap_evidencias: c.formap_evidencias,
+          nc_id: f.nc_id, nc_formap_id: f.formap.nc_formap_id, equipo_ruta_id: f.equipo_ruta_id,
+          formap_comentario: f.formap.comentario, formap_evidencias: f.formap.evidencias,
         }),
       });
       if (r.ok) {
         ok++;
-        const card = document.querySelector(`.cp-card[data-nc-id="${CSS.escape(c.nc_id)}"]`);
-        if (card) card.remove();
+        f.estado_actual = 'cerrada';
+        f.es_candidata = false;
       } else {
         fallidas++;
       }
@@ -1181,11 +1179,8 @@ $('btnCPConfirmar').addEventListener('click', async () => {
       fallidas++;
     }
   }
-  candidatosCP = candidatosCP.filter(c => !lote.includes(c));
   toast(`${ok} NC cerrada(s)` + (fallidas ? `, ${fallidas} con error` : '') + '.', fallidas ? 'error' : 'ok');
-  if (candidatosCP.length === 0) {
-    $('cpResultados').innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Ya no quedan NC pendientes de este escaneo.</div>`;
-  }
+  renderTablaCP();
 });
 
 if (authToken()) { mostrarApp(); } else { mostrarLogin(); }

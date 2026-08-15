@@ -236,48 +236,60 @@ def _iso_a_formap(fecha_iso: str) -> str:
     return f"{d}/{m}/{y} 0:00:00"
 
 
-@app.get("/api/cierre-periodico/escanear")
-def cierre_periodico_escanear(fecha_inicio: str, fecha_fin: str, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
-    """Solo lectura + consultas a FORMAP — NO escribe nada en ninguna base.
-    fecha_inicio/fecha_fin en YYYY-MM-DD. Para cada NC abierta de FORMAP en
-    bd_incidencias dentro del rango, busca en FORMAP por su equipo_ruta_id y
-    propone el mejor match entre los hallazgos que YA tienen respuesta/cierre
-    allá — el panel muestra la lista para que un humano decida qué cerrar."""
+@app.get("/api/cierre-periodico/tabla")
+def cierre_periodico_tabla(fecha_inicio: str, fecha_fin: str, estado: str = "", x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Tabla unificada: para cada NC de bd_incidencias en el rango (todas, o
+    filtradas por estado), busca su equipo_ruta_id en FORMAP y devuelve AMBOS
+    lados uno junto al otro — el estado en bd_incidencias y lo que dice FORMAP —
+    en una sola fila. `es_candidata=true` marca las que están abiertas/parciales
+    en bd_incidencias pero YA tienen respuesta en FORMAP (listas para cerrar).
+    Solo lectura + consultas a FORMAP — no escribe nada."""
     requiere_service_key(x_service_key, authorization)
     try:
-        candidatas = db_incidencias.listar_abiertas_formap(fecha_inicio, fecha_fin)
+        filas_bd = db_incidencias.listar_formap(fecha_inicio, fecha_fin, estado or None)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error leyendo bd_incidencias: {e}")
 
-    if not candidatas:
-        return {"candidatos": [], "total_revisadas": 0}
+    if not filas_bd:
+        return {"filas": []}
 
     fecha_ini_formap = _iso_a_formap(fecha_inicio)
     fecha_fin_formap = _iso_a_formap(fecha_fin)
     ruta_ids = ",".join(RUTA_IDS_CONOCIDOS)
+    ESTADOS_PENDIENTES = {"abierta", "en_proceso", "parcialmente_cerrada"}
 
     def _hacer():
         cliente = _cliente()
         cache_por_ruta = {}
-        candidatos = []
-        for nc in candidatas:
+        filas = []
+        for nc in filas_bd:
             ruta = nc["equipo_ruta_id"]
-            if ruta not in cache_por_ruta:
-                hallazgos = cliente.buscar_por_equipo_ruta_id(ruta, fecha_ini_formap, fecha_fin_formap, ruta_ids)
-                cache_por_ruta[ruta] = [h for h in hallazgos if h.get("respuesta_comentario")]
-            candidatos_formap = cache_por_ruta[ruta]
-            if not candidatos_formap:
-                continue
-            match, score = matching.mejor_match(nc, candidatos_formap)
+            hallazgos_ruta = []
+            if ruta:
+                if ruta not in cache_por_ruta:
+                    cache_por_ruta[ruta] = cliente.buscar_por_equipo_ruta_id(ruta, fecha_ini_formap, fecha_fin_formap, ruta_ids)
+                hallazgos_ruta = cache_por_ruta[ruta]
+
+            match, score = matching.mejor_match(nc, hallazgos_ruta, umbral=0.3) if hallazgos_ruta else (None, 0.0)
+            formap = None
+            es_candidata = False
             if match:
-                candidatos.append({
-                    "nc_id": nc["id"], "nc_titulo": nc["titulo"], "equipo_ruta_id": ruta,
+                formap = {
                     "nc_formap_id": match["nc_formap_id"],
-                    "formap_comentario": match["respuesta_comentario"],
-                    "formap_evidencias": match["evidencias"],
-                    "score_match": round(score, 2),
-                })
-        return {"candidatos": candidatos, "total_revisadas": len(candidatas)}
+                    "estado_formap": match.get("estado_formap"),
+                    "subestado_formap": match.get("subestado_formap"),
+                    "comentario": match.get("respuesta_comentario"),
+                    "evidencias": match.get("evidencias") or [],
+                    "score": round(score, 2),
+                }
+                es_candidata = bool(match.get("respuesta_comentario")) and nc["estado_actual"] in ESTADOS_PENDIENTES
+
+            filas.append({
+                "nc_id": nc["id"], "titulo": nc["titulo"], "equipo_ruta_id": ruta,
+                "estado_actual": nc["estado_actual"], "creado_en": nc["creado_en"], "actualizado_en": nc["actualizado_en"],
+                "formap": formap, "es_candidata": es_candidata,
+            })
+        return {"filas": filas}
 
     return _con_manejo_sesion(_hacer)
 
