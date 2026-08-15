@@ -193,6 +193,20 @@
   .card-evid a:hover{ border-color: var(--amber); color: var(--amber); }
 
   .card-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+  .card-nc{
+    margin-top:12px; padding:10px 12px; border:1px dashed var(--border-bright);
+    background: rgba(45,212,191,.04);
+  }
+  .card-nc-head{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    font-family: var(--mono); font-size:10px; color: var(--teal); text-transform:uppercase; letter-spacing:.08em;
+    margin-bottom:6px;
+  }
+  .card-nc-item{ font-size:12px; color: var(--text-dim); padding:5px 0; border-top:1px solid var(--border); }
+  .card-nc-item:first-of-type{ border-top:none; }
+  .card-nc-item .titulo{ color: var(--text); font-weight:600; margin-bottom:2px; }
+  .card-nc-item .estado{ font-family: var(--mono); font-size:10px; color: var(--amber); }
+  .card-nc-item .comentario{ margin-top:3px; color: var(--text-faint); }
 
   .toast{
     position:fixed; bottom:24px; right:24px; z-index:60;
@@ -690,6 +704,7 @@ function renderResultados(hallazgos){
       </div>
       ${h.respuesta_comentario ? `<div class="card-comentario">${escapeHtml(h.respuesta_comentario)}</div>` : ''}
       ${h.evidencias && h.evidencias.length ? `<div class="card-evid">${h.evidencias.map(e => `<a href="${escapeHtml('https://formap.co' + (e.url||'').replace(/\\\\/g,'/'))}" target="_blank" rel="noopener">${escapeHtml(e.titulo || 'evidencia')}</a>`).join('')}</div>` : ''}
+      <div class="card-nc" id="ncSys-${escapeHtml(h.nc_formap_id)}" hidden></div>
       <div class="card-actions">
         <button class="btn secondary btn-detalle" data-id="${escapeHtml(h.nc_formap_id)}">Ver detalle</button>
         <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}">${cerrada ? 'Actualizar cierre' : 'Cerrar en FORMAP'}</button>
@@ -698,12 +713,61 @@ function renderResultados(hallazgos){
     cont.appendChild(card);
   });
 
+  cargarCoincidenciasEnMiSistema(hallazgos);
+
   cont.querySelectorAll('.btn-cerrar').forEach(btn => {
     btn.addEventListener('click', () => abrirConfirmacion(btn.dataset.id));
   });
   cont.querySelectorAll('.btn-detalle').forEach(btn => {
     btn.addEventListener('click', () => verDetalle(btn.dataset.id));
   });
+}
+
+function formatearFechaCorta(iso){
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+}
+
+async function cargarCoincidenciasEnMiSistema(hallazgos){
+  // Agrupa los bloques "En tu sistema" por equipo_ruta_id único — varios
+  // hallazgos de FORMAP pueden compartir la misma ruta, así que no se repite
+  // la consulta a bd_incidencias para cada uno.
+  const porRuta = {};
+  hallazgos.forEach(h => {
+    if (!h.equipo_ruta_id) return;
+    (porRuta[h.equipo_ruta_id] ||= []).push(h.nc_formap_id);
+  });
+
+  await Promise.all(Object.entries(porRuta).map(async ([ruta, ncFormapIds]) => {
+    let coincidencias = [];
+    try {
+      const r = await llamar('/api/incidencias/por-ruta?equipo_ruta_id=' + encodeURIComponent(ruta));
+      coincidencias = r.coincidencias || [];
+    } catch (e) {
+      return; // si falla la consulta a bd_incidencias, simplemente no se muestra el bloque
+    }
+    if (coincidencias.length === 0) return;
+
+    const html = `
+      <div class="card-nc-head">
+        <span>En tu sistema (bd_incidencias) — ${coincidencias.length} coincidencia(s)</span>
+      </div>
+      ${coincidencias.map(nc => `
+        <div class="card-nc-item">
+          <div class="titulo">${escapeHtml(nc.titulo || '(sin título)')}</div>
+          <span class="estado">${escapeHtml(nc.estado_actual || '—')}</span>
+          ${nc.ultimo_comentario ? `<div class="comentario">${escapeHtml(formatearFechaCorta(nc.ultimo_comentario_fecha))} — ${escapeHtml(nc.ultimo_comentario)}</div>` : ''}
+        </div>
+      `).join('')}
+    `;
+    ncFormapIds.forEach(id => {
+      const bloque = $('ncSys-' + id);
+      if (bloque) { bloque.innerHTML = html; bloque.hidden = false; }
+    });
+  }));
 }
 
 function abrirConfirmacion(ncFormapId){

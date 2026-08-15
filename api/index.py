@@ -20,7 +20,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, parsear_nc  # noqa: E402
 from lib import session_store  # noqa: E402
-from lib import db, auth  # noqa: E402
+from lib import db, db_incidencias, auth  # noqa: E402
 
 # /docs, /redoc y /openapi.json vienen expuestos públicamente por defecto en
 # FastAPI — para un servicio interno que reutiliza una sesión real de FORMAP,
@@ -202,6 +202,20 @@ async def buscar_por_ruta(request: Request, x_service_key: str = Header(default=
         return {"hallazgos": hallazgos}
 
     return _con_manejo_sesion(_hacer)
+
+
+# ── Integración de solo lectura con bd_incidencias (producción de nc_deploy) ────
+@app.get("/api/incidencias/por-ruta")
+def incidencias_por_ruta(equipo_ruta_id: str, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Solo lectura contra bd_incidencias — nunca escribe. Dado un equipo_ruta_id
+    de FORMAP, busca si ya existe esa NC en producción (nc_deploy) y trae su
+    último comentario/estado, para que el panel sepa si hace falta 'actualizar
+    cierre' en vez de tratarlo como una NC nueva."""
+    requiere_service_key(x_service_key, authorization)
+    try:
+        return {"coincidencias": db_incidencias.buscar_por_equipo_ruta_id(equipo_ruta_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando bd_incidencias: {e}")
 
 
 @app.get("/api/formap/detalle/{nc_formap_id}")
