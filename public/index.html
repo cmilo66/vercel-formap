@@ -203,8 +203,31 @@
   table.tabla-nc td{ padding:10px 12px; border-bottom:1px solid var(--border); color: var(--text-dim); vertical-align:top; }
   table.tabla-nc tr:hover td{ background: rgba(255,255,255,.02); }
   table.tabla-nc td.titulo{ color: var(--text); max-width:360px; }
-  table.tabla-nc-comparada tr.fila-candidata td{ background: rgba(255,176,32,.05); }
-  table.tabla-nc-comparada tr.fila-candidata:hover td{ background: rgba(255,176,32,.09); }
+  #listaCP{ display:flex; flex-direction:column; gap:14px; max-height:70vh; overflow-y:auto; padding-right:4px; }
+  .cp-compare-row{
+    display:grid; grid-template-columns: 1fr auto 1fr; grid-template-areas: "bd div formap" "accion accion accion";
+    gap:0 14px; opacity:0; animation: rise .35s ease forwards;
+    border:1px solid var(--border); background: var(--panel); padding:14px;
+  }
+  .cp-compare-row.candidata{ border-color: var(--amber-dim); box-shadow: inset 0 0 0 1px rgba(255,176,32,.15); }
+  .cp-compare-card{ padding:6px 4px; }
+  .cp-compare-card.bd{ grid-area: bd; }
+  .cp-compare-card.formap{ grid-area: formap; border-left:1px dashed var(--border-bright); padding-left:18px; }
+  .cp-compare-divider{ grid-area: div; display:flex; align-items:center; color: var(--text-faint); font-size:16px; }
+  .cp-compare-label{
+    font-family: var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:.08em;
+    color: var(--text-faint); margin-bottom:8px;
+  }
+  .cp-compare-titulo{ font-family: var(--display); font-size:13px; font-weight:600; color: var(--text); margin:8px 0 4px; line-height:1.35; }
+  .cp-compare-meta{ font-size:11.5px; color: var(--text-dim); line-height:1.5; }
+  .cp-compare-row .btn-cp-cerrar{
+    grid-area: accion; justify-self:end; margin-top:14px; padding:8px 16px; font-size:11px;
+  }
+  @media (max-width: 760px){
+    .cp-compare-row{ grid-template-columns: 1fr; grid-template-areas: "bd" "div" "formap" "accion"; }
+    .cp-compare-card.formap{ border-left:none; border-top:1px dashed var(--border-bright); padding-left:4px; padding-top:12px; }
+    .cp-compare-divider{ justify-content:center; padding:4px 0; }
+  }
   .estado-pill{
     font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em;
     padding:3px 9px; white-space:nowrap; display:inline-block;
@@ -1088,17 +1111,7 @@ function renderTablaCP(){
     <div class="field" style="max-width:320px; margin-bottom:14px;">
       <input id="fFiltroTabla" type="text" placeholder="Filtrar por título o ruta...">
     </div>
-    <div class="tabla-nc-wrap">
-      <table class="tabla-nc tabla-nc-comparada">
-        <thead>
-          <tr>
-            <th>bd_incidencias</th><th>Título</th><th>Ruta</th>
-            <th>FORMAP</th><th>Comentario FORMAP</th><th>Acción</th>
-          </tr>
-        </thead>
-        <tbody id="tbodyCP"></tbody>
-      </table>
-    </div>
+    <div id="listaCP"></div>
   `;
 
   pintarFilasCP(filasCP);
@@ -1116,28 +1129,37 @@ function renderTablaCP(){
 }
 
 function pintarFilasCP(filas){
-  const tbody = $('tbodyCP');
+  const lista = $('listaCP');
   if (filas.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-faint);">Sin coincidencias para ese filtro.</td></tr>`;
+    lista.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Sin coincidencias para ese filtro.</div>`;
     return;
   }
-  tbody.innerHTML = filas.map(f => {
+  lista.innerHTML = filas.map((f, i) => {
     const formap = f.formap;
-    const filaClase = f.es_candidata ? 'fila-candidata' : '';
     return `
-      <tr class="${filaClase}" data-nc-id="${escapeHtml(f.nc_id)}">
-        <td><span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(etiquetaEstado(f.estado_actual))}</span></td>
-        <td class="titulo">${escapeHtml(f.titulo || '(sin título)')}</td>
-        <td>${escapeHtml(f.equipo_ruta_id || '—')}</td>
-        <td>${formap ? escapeHtml(formap.subestado_formap || formap.estado_formap || '—') : '<span style="color:var(--text-faint);">sin match</span>'}</td>
-        <td class="titulo" style="max-width:280px;">${formap?.comentario ? escapeHtml(formap.comentario) : '<span style="color:var(--text-faint);">—</span>'}</td>
-        <td>${f.es_candidata ? `<button class="btn danger btn-cp-cerrar" style="padding:6px 12px; font-size:11px;">Cerrar</button>` : '—'}</td>
-      </tr>
+      <div class="cp-compare-row ${f.es_candidata ? 'candidata' : ''}" data-nc-id="${escapeHtml(f.nc_id)}" style="animation-delay:${(i * 0.03).toFixed(2)}s">
+        <div class="cp-compare-card bd">
+          <div class="cp-compare-label">Mi sistema · bd_incidencias</div>
+          <span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(etiquetaEstado(f.estado_actual))}</span>
+          <div class="cp-compare-titulo">${escapeHtml(f.titulo || '(sin título)')}</div>
+          <div class="cp-compare-meta">Ruta ${escapeHtml(f.equipo_ruta_id || '—')} · creada ${escapeHtml(formatearFechaCorta(f.creado_en))}</div>
+        </div>
+        <div class="cp-compare-divider">⇄</div>
+        <div class="cp-compare-card formap">
+          <div class="cp-compare-label">FORMAP</div>
+          ${formap ? `
+            <span class="estado-pill ${formap.comentario ? 'cerrada' : 'abierta'}">${escapeHtml(formap.subestado_formap || formap.estado_formap || '—')}</span>
+            <div class="cp-compare-titulo">NC FORMAP #${escapeHtml(formap.nc_formap_id)} · match ${Math.round((formap.score || 0) * 100)}%</div>
+            <div class="cp-compare-meta">${formap.comentario ? escapeHtml(formap.comentario) : 'Sin respuesta/comentario todavía.'}</div>
+          ` : `<div class="cp-compare-meta" style="color:var(--text-faint);">Sin match en FORMAP para esta ruta.</div>`}
+        </div>
+        ${f.es_candidata ? `<button class="btn danger btn-cp-cerrar">Cerrar en bd_incidencias</button>` : ''}
+      </div>
     `;
   }).join('');
-  tbody.querySelectorAll('.btn-cp-cerrar').forEach(btn => {
+  lista.querySelectorAll('.btn-cp-cerrar').forEach(btn => {
     btn.addEventListener('click', () => {
-      const ncId = btn.closest('tr').dataset.ncId;
+      const ncId = btn.closest('.cp-compare-row').dataset.ncId;
       const fila = filasCP.find(f => f.nc_id === ncId);
       if (fila) abrirConfirmacionCP(fila);
     });
