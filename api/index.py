@@ -86,6 +86,21 @@ def _con_manejo_sesion(fn, *args, **kwargs):
 
 
 # ── Salud / diagnóstico ──────────────────────────────────────────────────────────
+@app.get("/api/formap/debug-cookie-fingerprint")
+def debug_cookie_fingerprint(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """TEMPORAL — para diagnosticar si FORMAP_SESSION_JSON en Vercel es la cookie
+    esperada, sin exponer el valor real. Quitar una vez resuelto el problema de
+    sesión de hoy."""
+    requiere_service_key(x_service_key, authorization)
+    import hashlib
+    raw = os.environ.get("FORMAP_SESSION_JSON", "")
+    return {
+        "existe": bool(raw),
+        "longitud": len(raw),
+        "sha256": hashlib.sha256(raw.encode()).hexdigest(),
+    }
+
+
 @app.get("/api/formap/estado-sesion")
 def estado_sesion(x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
     requiere_service_key(x_service_key, authorization)
