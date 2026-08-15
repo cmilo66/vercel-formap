@@ -215,6 +215,10 @@
     background: var(--panel-raised); color: var(--text); border:1px solid var(--border-bright);
     padding: 28px; max-width: 420px; width: 90%;
     font-family: var(--sans);
+    /* El reset global "* { margin:0 }" anula el margin:auto que el navegador usa
+       para centrar <dialog> al abrirlo con showModal() — se centra a mano. */
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    margin: 0; box-shadow: 0 20px 60px rgba(0,0,0,.5);
   }
   dialog::backdrop{ background: rgba(0,0,0,.7); }
   dialog h4{ font-family: var(--display); font-size:16px; margin-bottom:10px; color: var(--red); }
