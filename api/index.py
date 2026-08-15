@@ -205,8 +205,10 @@ async def buscar_por_ruta(request: Request, x_service_key: str = Header(default=
 
 @app.get("/api/formap/detalle/{nc_formap_id}")
 def detalle(nc_formap_id: str, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Detalle estructurado (no HTML crudo de FORMAP) — el historial real de
+    observaciones, listo para que el panel lo muestre en su propia ventana flotante."""
     requiere_service_key(x_service_key, authorization)
-    return _con_manejo_sesion(lambda: {"html": _cliente().detalle_nc(nc_formap_id)})
+    return _con_manejo_sesion(lambda: _cliente().detalle_completo(nc_formap_id))
 
 
 # ── Escritura — ÚNICO disparador válido, siempre iniciado por tu sistema ────────

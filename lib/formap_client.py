@@ -156,9 +156,47 @@ class FormapClient:
 
     def detalle_nc(self, nc_formap_id: str) -> str:
         """POST /NO_Conformidad/Details — el modal de detalle que usa el botón de lupa.
-        Devuelve HTML crudo; útil si `buscar_nc` no trae algún dato que solo aparece
-        en el detalle completo."""
+        Devuelve HTML crudo del FORMULARIO de edición (Estado, Observaciones, adjuntar
+        archivo) — es solo la cáscara del modal, NO trae el historial real de
+        observaciones (esa tabla llega vacía, se llena aparte por JS). Para el
+        historial real usar `historial_conciliacion()`."""
         return self._post("/NO_Conformidad/Details", {"id": nc_formap_id}).text
+
+    def historial_conciliacion(self, nc_formap_id: str) -> list[dict]:
+        """POST /NO_Conformidad/getTablaHistorialConciliacion — el historial real de
+        observaciones/estados de una NC (lo que en el modal de FORMAP llena la tabla
+        'Fecha Observación / Observación / Adjunto / Usuario / Estado' vía AJAX aparte,
+        después de cargar Details). Devuelve la lista cruda de FORMAP (FechaSistema en
+        formato /Date(ms)/, Comentarios, Adjunto, Adjunto2, NombreAdjunto,
+        NombreAdjunto2, UserName, Estado, IdNC)."""
+        resp = self._post("/NO_Conformidad/getTablaHistorialConciliacion", {"NoconformidadId": nc_formap_id})
+        try:
+            return resp.json()
+        except ValueError:
+            return []
+
+    def detalle_completo(self, nc_formap_id: str) -> dict:
+        """Combina Details (estado editable) + el historial real de observaciones,
+        ya parseado a algo consumible directo por un frontend propio (sin necesidad
+        de renderizar el HTML crudo de FORMAP)."""
+        historial_crudo = self.historial_conciliacion(nc_formap_id)
+        observaciones = []
+        for item in historial_crudo:
+            fecha_ms = re.search(r"/Date\((\d+)\)/", item.get("FechaSistema") or "")
+            fecha_iso = None
+            if fecha_ms:
+                fecha_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(int(fecha_ms.group(1)) / 1000))
+            observaciones.append({
+                "fecha": fecha_iso,
+                "comentario": item.get("Comentarios"),
+                "usuario": item.get("UserName"),
+                "estado": item.get("Estado"),
+                "adjunto_url": f"https://formap.co/CarpetaHistorialConciliacion/{item['Adjunto']}" if item.get("Adjunto") else None,
+                "adjunto_nombre": item.get("NombreAdjunto"),
+                "adjunto2_url": f"https://formap.co/CarpetaHistorialConciliacion/{item['Adjunto2']}" if item.get("Adjunto2") else None,
+                "adjunto2_nombre": item.get("NombreAdjunto2"),
+            })
+        return {"observaciones": observaciones}
 
     # ── Escritura — cerrar NC en FORMAP (EXPERIMENTAL, no verificado end-to-end) ────
     def marcar_resuelta(self, nc_formap_id: str) -> dict:
