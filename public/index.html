@@ -492,38 +492,8 @@
 
     <div class="panel" style="animation-delay:.05s">
       <div class="panel-head">
-        <h3>Estado de NC (abiertas y cerradas)</h3>
-        <span class="tag">Solo lectura</span>
-      </div>
-      <div class="field-grid">
-        <div class="field">
-          <label>Fecha inicio</label>
-          <div class="dpicker" id="dpTablaFechaInicio"></div>
-        </div>
-        <div class="field">
-          <label>Fecha fin</label>
-          <div class="dpicker" id="dpTablaFechaFin"></div>
-        </div>
-        <div class="field">
-          <label for="fTablaEstado">Estado</label>
-          <select id="fTablaEstado">
-            <option value="">Todas</option>
-            <option value="abierta">Abiertas</option>
-            <option value="cerrada">Cerradas</option>
-          </select>
-        </div>
-      </div>
-      <div class="actions">
-        <button class="btn secondary" id="btnVerTabla">Ver tabla</button>
-        <span class="hint" id="tablaHint">Vista rápida de qué NC de FORMAP ya están cerradas en tu sistema y cuáles no.</span>
-      </div>
-      <div id="tablaEstadoNC"></div>
-    </div>
-
-    <div class="panel" style="animation-delay:.1s">
-      <div class="panel-head">
         <h3>Escanear rango de fechas</h3>
-        <span class="tag">Escribe en bd_incidencias</span>
+        <span class="tag">Tabla de solo lectura + candidatos a cerrar</span>
       </div>
       <div class="field-grid">
         <div class="field">
@@ -534,11 +504,20 @@
           <label>Fecha fin</label>
           <div class="dpicker" id="dpCPFechaFin"></div>
         </div>
+        <div class="field">
+          <label for="fTablaEstado">Estado (para la tabla)</label>
+          <select id="fTablaEstado">
+            <option value="">Todas</option>
+            <option value="abierta">Abiertas</option>
+            <option value="cerrada">Cerradas</option>
+          </select>
+        </div>
       </div>
       <div class="actions">
         <button class="btn" id="btnEscanear">Escanear</button>
-        <span class="hint" id="escanearHint">Revisa todas las NC de bd_incidencias con fuente=formap, abiertas, creadas en ese rango.</span>
+        <span class="hint" id="escanearHint">Trae la tabla de estado (abiertas/cerradas) y, aparte, revisa las abiertas contra FORMAP en busca de candidatas a cerrar.</span>
       </div>
+      <div id="tablaEstadoNC"></div>
     </div>
 
     <div id="cpResultados">
@@ -795,8 +774,6 @@ crearDatePicker('dpFechaInicio');
 crearDatePicker('dpFechaFin');
 crearDatePicker('dpCPFechaInicio');
 crearDatePicker('dpCPFechaFin');
-crearDatePicker('dpTablaFechaInicio');
-crearDatePicker('dpTablaFechaFin');
 
 function fechaFormapDesde(inputDate){
   if (!inputDate) return '';
@@ -1039,27 +1016,6 @@ function cambiarVista(vista){
   $('navCierrePeriodico').classList.toggle('active', !esBuscador);
 }
 
-// ── Tabla de estado de NC (abiertas y cerradas) — solo lectura ──────────────
-$('btnVerTabla').addEventListener('click', async () => {
-  const fi = datePickers.dpTablaFechaInicio.valor, ff = datePickers.dpTablaFechaFin.valor;
-  const estado = $('fTablaEstado').value;
-  if (!fi || !ff) {
-    toast('Elige fecha inicio y fin.', 'error');
-    return;
-  }
-  const btn = $('btnVerTabla');
-  btn.disabled = true;
-  btn.textContent = 'Consultando...';
-  try {
-    const r = await llamar(`/api/incidencias/listado?fecha_inicio=${fi}&fecha_fin=${ff}&estado=${encodeURIComponent(estado)}`);
-    renderTablaEstadoNC(r.nc || []);
-  } catch (e) {
-    toast('Error: ' + (e.data?.detail || e.status), 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Ver tabla';
-  }
-});
-
 function claseEstado(estado){
   if (estado === 'abierta') return 'abierta';
   if (estado === 'cerrada') return 'cerrada';
@@ -1111,7 +1067,17 @@ $('btnEscanear').addEventListener('click', async () => {
   }
   const btn = $('btnEscanear');
   btn.disabled = true;
-  btn.textContent = 'Escaneando bd_incidencias + FORMAP...';
+
+  btn.textContent = 'Consultando tabla de estado...';
+  try {
+    const estado = $('fTablaEstado').value;
+    const rTabla = await llamar(`/api/incidencias/listado?fecha_inicio=${fi}&fecha_fin=${ff}&estado=${encodeURIComponent(estado)}`);
+    renderTablaEstadoNC(rTabla.nc || []);
+  } catch (e) {
+    toast('Error consultando la tabla: ' + (e.data?.detail || e.status), 'error');
+  }
+
+  btn.textContent = 'Escaneando contra FORMAP...';
   try {
     const r = await llamar(`/api/cierre-periodico/escanear?fecha_inicio=${fi}&fecha_fin=${ff}`);
     candidatosCP = r.candidatos || [];
