@@ -63,3 +63,27 @@ def buscar_por_equipo_ruta_id(equipo_ruta_id: str) -> list[dict]:
             return cur.fetchall()
     finally:
         conn.close()
+
+
+def listar_abiertas_formap(fecha_inicio: str, fecha_fin: str) -> list[dict]:
+    """Lectura: NC abiertas con fuente='formap' y equipo_ruta_id no vacío,
+    creadas dentro de fecha_inicio/fecha_fin (formato YYYY-MM-DD). Es el punto de
+    partida del escaneo de 'Cierre Periódico' — qué NC hay que ir a revisar
+    contra FORMAP."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, titulo, descripcion, equipo_ruta_id, creado_en
+                FROM no_conformidades
+                WHERE fuente = 'formap' AND estado_actual = 'abierta'
+                  AND equipo_ruta_id IS NOT NULL AND equipo_ruta_id != ''
+                  AND creado_en BETWEEN %s AND %s
+                ORDER BY creado_en
+                """,
+                (f"{fecha_inicio} 00:00:00", f"{fecha_fin} 23:59:59"),
+            )
+            return cur.fetchall()
+    finally:
+        conn.close()

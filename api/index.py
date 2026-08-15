@@ -18,9 +18,9 @@ from functools import wraps
 from fastapi import FastAPI, Header, HTTPException, Request
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, parsear_nc  # noqa: E402
+from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, RUTA_IDS_CONOCIDOS, parsear_nc  # noqa: E402
 from lib import session_store  # noqa: E402
-from lib import db, db_incidencias, auth  # noqa: E402
+from lib import db, db_incidencias, db_incidencias_escritura, matching, auth  # noqa: E402
 
 # /docs, /redoc y /openapi.json vienen expuestos públicamente por defecto en
 # FastAPI — para un servicio interno que reutiliza una sesión real de FORMAP,
@@ -216,6 +216,76 @@ def incidencias_por_ruta(equipo_ruta_id: str, x_service_key: str = Header(defaul
         return {"coincidencias": db_incidencias.buscar_por_equipo_ruta_id(equipo_ruta_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error consultando bd_incidencias: {e}")
+
+
+# ── Cierre Periódico: escanea bd_incidencias + FORMAP, cierra SOLO con confirmación humana ──
+def _iso_a_formap(fecha_iso: str) -> str:
+    y, m, d = fecha_iso.split("-")
+    return f"{d}/{m}/{y} 0:00:00"
+
+
+@app.get("/api/cierre-periodico/escanear")
+def cierre_periodico_escanear(fecha_inicio: str, fecha_fin: str, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Solo lectura + consultas a FORMAP — NO escribe nada en ninguna base.
+    fecha_inicio/fecha_fin en YYYY-MM-DD. Para cada NC abierta de FORMAP en
+    bd_incidencias dentro del rango, busca en FORMAP por su equipo_ruta_id y
+    propone el mejor match entre los hallazgos que YA tienen respuesta/cierre
+    allá — el panel muestra la lista para que un humano decida qué cerrar."""
+    requiere_service_key(x_service_key, authorization)
+    try:
+        candidatas = db_incidencias.listar_abiertas_formap(fecha_inicio, fecha_fin)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo bd_incidencias: {e}")
+
+    if not candidatas:
+        return {"candidatos": [], "total_revisadas": 0}
+
+    fecha_ini_formap = _iso_a_formap(fecha_inicio)
+    fecha_fin_formap = _iso_a_formap(fecha_fin)
+    ruta_ids = ",".join(RUTA_IDS_CONOCIDOS)
+
+    def _hacer():
+        cliente = _cliente()
+        cache_por_ruta = {}
+        candidatos = []
+        for nc in candidatas:
+            ruta = nc["equipo_ruta_id"]
+            if ruta not in cache_por_ruta:
+                hallazgos = cliente.buscar_por_equipo_ruta_id(ruta, fecha_ini_formap, fecha_fin_formap, ruta_ids)
+                cache_por_ruta[ruta] = [h for h in hallazgos if h.get("respuesta_comentario")]
+            candidatos_formap = cache_por_ruta[ruta]
+            if not candidatos_formap:
+                continue
+            match, score = matching.mejor_match(nc, candidatos_formap)
+            if match:
+                candidatos.append({
+                    "nc_id": nc["id"], "nc_titulo": nc["titulo"], "equipo_ruta_id": ruta,
+                    "nc_formap_id": match["nc_formap_id"],
+                    "formap_comentario": match["respuesta_comentario"],
+                    "formap_evidencias": match["evidencias"],
+                    "score_match": round(score, 2),
+                })
+        return {"candidatos": candidatos, "total_revisadas": len(candidatas)}
+
+    return _con_manejo_sesion(_hacer)
+
+
+@app.post("/api/cierre-periodico/cerrar")
+async def cierre_periodico_cerrar(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """ÚNICA ruta que escribe en bd_incidencias desde este servicio. Siempre
+    disparada por confirmación humana explícita en el panel (una NC a la vez o
+    un lote ya revisado en pantalla) — nunca se llama de forma automática.
+    Body: {nc_id, nc_formap_id, equipo_ruta_id, formap_comentario, formap_evidencias}."""
+    requiere_service_key(x_service_key, authorization)
+    body = await request.json()
+    try:
+        return db_incidencias_escritura.cerrar_nc(
+            nc_id=body["nc_id"], nc_formap_id=body["nc_formap_id"],
+            equipo_ruta_id=body["equipo_ruta_id"], comentario_formap=body["formap_comentario"],
+            evidencias=body.get("formap_evidencias") or [],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cerrando en bd_incidencias: {e}")
 
 
 @app.get("/api/formap/detalle/{nc_formap_id}")

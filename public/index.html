@@ -163,6 +163,36 @@
   }
   .empty-state .glyph{ font-size:32px; margin-bottom:14px; opacity:.5; }
 
+  .menu-principal{ display:flex; gap:2px; margin-bottom:28px; border-bottom:1px solid var(--border); }
+  .menu-item{
+    background:transparent; border:none; border-bottom:2px solid transparent;
+    color: var(--text-faint); font-family: var(--mono); font-size:12px; text-transform:uppercase;
+    letter-spacing:.06em; padding:12px 18px; cursor:pointer; transition: all .15s;
+  }
+  .menu-item:hover{ color: var(--text-dim); }
+  .menu-item.active{ color: var(--amber); border-bottom-color: var(--amber); }
+
+  .cp-card{
+    border:1px solid var(--border); background: var(--panel-raised);
+    padding:18px 20px; margin-bottom:14px; opacity:0; animation: rise .4s ease forwards;
+  }
+  .cp-card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:10px; }
+  .cp-card-nc{ font-family: var(--mono); font-size:11px; color: var(--teal); margin-bottom:4px; }
+  .cp-card-titulo{ font-family: var(--display); font-size:14px; font-weight:600; }
+  .cp-card-score{
+    font-family: var(--mono); font-size:10px; color: var(--text-dim);
+    border:1px solid var(--border-bright); padding:3px 8px; white-space:nowrap;
+  }
+  .cp-card-formap{
+    font-size:12px; color: var(--text-dim); padding:10px 12px; margin-top:10px;
+    background: var(--bg); border-left:2px solid var(--teal); line-height:1.5;
+  }
+  .cp-card-actions{ display:flex; justify-content:flex-end; margin-top:12px; }
+  .cp-summary{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    margin-bottom:16px; font-family: var(--mono); font-size:12px; color: var(--text-dim);
+  }
+
   .card{
     border:1px solid var(--border); background: var(--panel-raised);
     padding:18px 20px; opacity:0; animation: rise .4s ease forwards;
@@ -390,6 +420,12 @@
 </div>
 
 <main id="mainApp" style="display:none;">
+  <nav class="menu-principal">
+    <button type="button" class="menu-item active" id="navBuscador">Buscador NC</button>
+    <button type="button" class="menu-item" id="navCierrePeriodico">Cierre Periódico</button>
+  </nav>
+
+  <div id="vistaBuscador">
   <div class="intro">
     <div class="eyebrow">Panel de control · lectura y cierre</div>
     <h2>Buscar No Conformidades en FORMAP</h2>
@@ -427,6 +463,43 @@
       Sin resultados todavía — conecta y lanza una búsqueda.
     </div>
   </div>
+  </div>
+
+  <div id="vistaCierrePeriodico" style="display:none;">
+    <div class="intro">
+      <div class="eyebrow">Panel de control · escritura en producción</div>
+      <h2>Cierre Periódico</h2>
+      <p>Escanea las NC abiertas de FORMAP en bd_incidencias dentro de un rango de fechas, las busca en FORMAP, y te muestra las que ya tienen respuesta/cierre allá — <strong>nada se cierra automáticamente</strong>, tú confirmas cada una (o todas) antes de escribir en producción.</p>
+    </div>
+
+    <div class="panel" style="animation-delay:.1s">
+      <div class="panel-head">
+        <h3>Escanear rango de fechas</h3>
+        <span class="tag">Escribe en bd_incidencias</span>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Fecha inicio</label>
+          <div class="dpicker" id="dpCPFechaInicio"></div>
+        </div>
+        <div class="field">
+          <label>Fecha fin</label>
+          <div class="dpicker" id="dpCPFechaFin"></div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btnEscanear">Escanear</button>
+        <span class="hint" id="escanearHint">Revisa todas las NC de bd_incidencias con fuente=formap, abiertas, creadas en ese rango.</span>
+      </div>
+    </div>
+
+    <div id="cpResultados">
+      <div class="empty-state">
+        <div class="glyph">◇</div>
+        Sin escaneo todavía — elige un rango de fechas y dale a Escanear.
+      </div>
+    </div>
+  </div>
 </main>
 
 <footer>Puente FORMAP · construido sobre HTTP puro, sin navegador headless</footer>
@@ -448,6 +521,15 @@
   <div class="dialog-actions">
     <button class="btn secondary" id="btnCancelar">Cancelar</button>
     <button class="btn danger" id="btnConfirmar">Sí, cerrar</button>
+  </div>
+</dialog>
+
+<dialog id="confirmCierreProdDialog">
+  <h4>Confirmar cierre en bd_incidencias</h4>
+  <p id="confirmCierreProdText"></p>
+  <div class="dialog-actions">
+    <button class="btn secondary" id="btnCPCancelar">Cancelar</button>
+    <button class="btn danger" id="btnCPConfirmar">Sí, cerrar en producción</button>
   </div>
 </dialog>
 
@@ -663,6 +745,8 @@ document.addEventListener('click', () => {
 
 crearDatePicker('dpFechaInicio');
 crearDatePicker('dpFechaFin');
+crearDatePicker('dpCPFechaInicio');
+crearDatePicker('dpCPFechaFin');
 
 function fechaFormapDesde(inputDate){
   if (!inputDate) return '';
@@ -891,6 +975,123 @@ $('btnConfirmar').addEventListener('click', async () => {
     toast('Error al cerrar: ' + (e.data?.detail || e.status), 'error');
   }
   pendienteCierre = null;
+});
+
+// ── Menú principal (Buscador NC / Cierre Periódico) ─────────────────────────
+$('navBuscador').addEventListener('click', () => cambiarVista('buscador'));
+$('navCierrePeriodico').addEventListener('click', () => cambiarVista('cierre-periodico'));
+
+function cambiarVista(vista){
+  const esBuscador = vista === 'buscador';
+  $('vistaBuscador').style.display = esBuscador ? 'block' : 'none';
+  $('vistaCierrePeriodico').style.display = esBuscador ? 'none' : 'block';
+  $('navBuscador').classList.toggle('active', esBuscador);
+  $('navCierrePeriodico').classList.toggle('active', !esBuscador);
+}
+
+// ── Cierre Periódico: escanear bd_incidencias + FORMAP, revisar y confirmar ──
+let pendienteCierreProd = null;
+let candidatosCP = [];
+
+$('btnEscanear').addEventListener('click', async () => {
+  const fi = datePickers.dpCPFechaInicio.valor, ff = datePickers.dpCPFechaFin.valor;
+  if (!fi || !ff) {
+    toast('Elige fecha inicio y fin.', 'error');
+    return;
+  }
+  const btn = $('btnEscanear');
+  btn.disabled = true;
+  btn.textContent = 'Escaneando bd_incidencias + FORMAP...';
+  try {
+    const r = await llamar(`/api/cierre-periodico/escanear?fecha_inicio=${fi}&fecha_fin=${ff}`);
+    candidatosCP = r.candidatos || [];
+    renderCandidatosCP(r.total_revisadas ?? 0);
+  } catch (e) {
+    if (e.data?.sesion_expirada) {
+      toast('La sesión de FORMAP expiró — hace falta relogin asistido.', 'error');
+    } else {
+      toast('Error: ' + (e.data?.detail || e.status), 'error');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Escanear';
+  }
+});
+
+function renderCandidatosCP(totalRevisadas){
+  const cont = $('cpResultados');
+  if (candidatosCP.length === 0) {
+    cont.innerHTML = `<div class="empty-state"><div class="glyph">◇</div>${totalRevisadas} NC abierta(s) revisada(s) en bd_incidencias — ninguna tiene respuesta/cierre en FORMAP todavía.</div>`;
+    return;
+  }
+  cont.innerHTML = `
+    <div class="cp-summary">
+      <span>${candidatosCP.length} de ${totalRevisadas} NC ya tienen respuesta en FORMAP</span>
+      <button class="btn danger" id="btnCerrarTodas" style="padding:8px 16px;">Cerrar todas (${candidatosCP.length})</button>
+    </div>
+  `;
+  candidatosCP.forEach((c, i) => {
+    const card = document.createElement('div');
+    card.className = 'cp-card';
+    card.style.animationDelay = (i * 0.04) + 's';
+    card.dataset.ncId = c.nc_id;
+    card.innerHTML = `
+      <div class="cp-card-top">
+        <div>
+          <div class="cp-card-nc">bd_incidencias · ruta ${escapeHtml(c.equipo_ruta_id)} · NC FORMAP #${escapeHtml(c.nc_formap_id)}</div>
+          <div class="cp-card-titulo">${escapeHtml(c.nc_titulo || '(sin título)')}</div>
+        </div>
+        <span class="cp-card-score">match ${Math.round((c.score_match || 0) * 100)}%</span>
+      </div>
+      <div class="cp-card-formap">${escapeHtml(c.formap_comentario)}</div>
+      <div class="cp-card-actions">
+        <button class="btn danger btn-cp-cerrar" style="padding:8px 16px;">Cerrar esta NC</button>
+      </div>
+    `;
+    card.querySelector('.btn-cp-cerrar').addEventListener('click', () => abrirConfirmacionCP(c));
+    cont.appendChild(card);
+  });
+  $('btnCerrarTodas').addEventListener('click', () => abrirConfirmacionCP(null));
+}
+
+function abrirConfirmacionCP(candidato){
+  pendienteCierreProd = candidato; // null = cerrar todas
+  $('confirmCierreProdText').textContent = candidato
+    ? `Vas a cerrar en bd_incidencias (producción) la NC "${candidato.nc_titulo}", usando la respuesta de FORMAP como evidencia. Esta acción queda registrada en el historial y no se puede deshacer desde el panel. ¿Continuar?`
+    : `Vas a cerrar en bd_incidencias (producción) las ${candidatosCP.length} NC listadas, una por una. Cada cierre queda registrado en el historial y no se puede deshacer desde el panel. ¿Continuar?`;
+  $('confirmCierreProdDialog').showModal();
+}
+
+$('btnCPCancelar').addEventListener('click', () => $('confirmCierreProdDialog').close());
+$('btnCPConfirmar').addEventListener('click', async () => {
+  $('confirmCierreProdDialog').close();
+  const lote = pendienteCierreProd ? [pendienteCierreProd] : candidatosCP.slice();
+  pendienteCierreProd = null;
+  let ok = 0, fallidas = 0;
+  for (const c of lote) {
+    try {
+      const r = await llamar('/api/cierre-periodico/cerrar', {
+        method: 'POST',
+        body: JSON.stringify({
+          nc_id: c.nc_id, nc_formap_id: c.nc_formap_id, equipo_ruta_id: c.equipo_ruta_id,
+          formap_comentario: c.formap_comentario, formap_evidencias: c.formap_evidencias,
+        }),
+      });
+      if (r.ok) {
+        ok++;
+        const card = document.querySelector(`.cp-card[data-nc-id="${CSS.escape(c.nc_id)}"]`);
+        if (card) card.remove();
+      } else {
+        fallidas++;
+      }
+    } catch (e) {
+      fallidas++;
+    }
+  }
+  candidatosCP = candidatosCP.filter(c => !lote.includes(c));
+  toast(`${ok} NC cerrada(s)` + (fallidas ? `, ${fallidas} con error` : '') + '.', fallidas ? 'error' : 'ok');
+  if (candidatosCP.length === 0) {
+    $('cpResultados').innerHTML = `<div class="empty-state"><div class="glyph">◇</div>Ya no quedan NC pendientes de este escaneo.</div>`;
+  }
 });
 
 if (authToken()) { mostrarApp(); } else { mostrarLogin(); }
