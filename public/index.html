@@ -692,7 +692,7 @@ function renderResultados(hallazgos){
       ${h.evidencias && h.evidencias.length ? `<div class="card-evid">${h.evidencias.map(e => `<a href="${escapeHtml('https://formap.co' + (e.url||'').replace(/\\\\/g,'/'))}" target="_blank" rel="noopener">${escapeHtml(e.titulo || 'evidencia')}</a>`).join('')}</div>` : ''}
       <div class="card-actions">
         <button class="btn secondary btn-detalle" data-id="${escapeHtml(h.nc_formap_id)}">Ver detalle</button>
-        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}">Cerrar en FORMAP</button>
+        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}">${cerrada ? 'Actualizar cierre' : 'Cerrar en FORMAP'}</button>
       </div>
     `;
     cont.appendChild(card);
