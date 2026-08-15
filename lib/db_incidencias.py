@@ -96,6 +96,62 @@ def listar_abiertas_formap(fecha_inicio: str, fecha_fin: str) -> list[dict]:
         conn.close()
 
 
+def detalle_nc(nc_id: str) -> dict | None:
+    """Lectura: cabecera + historial completo de UNA NC de bd_incidencias (el
+    'Flujo de gestión' que ya se ve en nc_deploy), para expandir la tarjeta del
+    panel sin salir de aquí. Devuelve None si la NC no existe o no pertenece al
+    centro operativo permitido (defensa en profundidad, además del filtro que
+    ya se aplica en los listados que originan el nc_id)."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, titulo, descripcion, estado_actual, prioridad, tipo,
+                       equipo_ruta_id, creado_en, actualizado_en
+                FROM no_conformidades
+                WHERE id = %s AND centro_operativo_id = %s
+                """,
+                (nc_id, CENTRO_OPERATIVO_PERMITIDO),
+            )
+            nc = cur.fetchone()
+            if nc is None:
+                return None
+
+            cur.execute(
+                """
+                SELECT h.id, h.estado_anterior, h.estado_nuevo, h.comentario, h.fecha, h.tipo,
+                       u.nombre AS actor_nombre
+                FROM estados_historial h
+                LEFT JOIN usuarios u ON u.id = h.actor_id
+                WHERE h.no_conformidad_id = %s
+                ORDER BY h.fecha ASC
+                """,
+                (nc_id,),
+            )
+            historial = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT historial_id, dropbox_url, nombre_original, tipo, origen
+                FROM nc_fotos
+                WHERE no_conformidad_id = %s
+                """,
+                (nc_id,),
+            )
+            fotos_por_historial = {}
+            for foto in cur.fetchall():
+                fotos_por_historial.setdefault(foto["historial_id"], []).append(foto)
+
+            for h in historial:
+                h["fotos"] = fotos_por_historial.get(h["id"], [])
+
+            nc["historial"] = historial
+            return nc
+    finally:
+        conn.close()
+
+
 def listar_formap(fecha_inicio: str, fecha_fin: str, estado: str | None = None) -> list[dict]:
     """Lectura: tabla de estado — todas las NC con fuente='formap' creadas en el
     rango dado, sin importar si están abiertas o cerradas (a diferencia de

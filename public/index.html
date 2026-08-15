@@ -205,7 +205,8 @@
   table.tabla-nc td.titulo{ color: var(--text); max-width:360px; }
   #listaCP{ display:flex; flex-direction:column; gap:14px; max-height:70vh; overflow-y:auto; padding-right:4px; }
   .cp-compare-row{
-    display:grid; grid-template-columns: 1fr auto 1fr; grid-template-areas: "bd div formap" "accion accion accion";
+    display:grid; grid-template-columns: 1fr auto 1fr;
+    grid-template-areas: "bd div formap" "detalle detalle detalle" "accion accion accion";
     gap:0 14px; opacity:0; animation: rise .35s ease forwards;
     border:1px solid var(--border); background: var(--panel); padding:14px;
   }
@@ -223,8 +224,24 @@
   .cp-compare-row .btn-cp-cerrar{
     grid-area: accion; justify-self:end; margin-top:14px; padding:8px 16px; font-size:11px;
   }
+  .cp-expand-btn{
+    display:flex; align-items:center; gap:6px; margin-top:12px; background:transparent; border:none;
+    color: var(--text-faint); font-family: var(--mono); font-size:10px; text-transform:uppercase;
+    letter-spacing:.05em; cursor:pointer; padding:2px 0;
+  }
+  .cp-expand-btn:hover{ color: var(--amber); }
+  .cp-expand-btn svg{ transition: transform .2s ease; }
+  .cp-expand-btn.open svg{ transform: rotate(180deg); }
+  .cp-expand-panel{
+    grid-area: detalle; margin-top:14px; padding-top:14px; border-top:1px solid var(--border);
+    max-height:340px; overflow-y:auto;
+  }
+  .cp-expand-head{
+    font-family: var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+    color: var(--teal); margin-bottom:12px;
+  }
   @media (max-width: 760px){
-    .cp-compare-row{ grid-template-columns: 1fr; grid-template-areas: "bd" "div" "formap" "accion"; }
+    .cp-compare-row{ grid-template-columns: 1fr; grid-template-areas: "bd" "div" "formap" "detalle" "accion"; }
     .cp-compare-card.formap{ border-left:none; border-top:1px dashed var(--border-bright); padding-left:4px; padding-top:12px; }
     .cp-compare-divider{ justify-content:center; padding:4px 0; }
   }
@@ -334,7 +351,7 @@
   }
   #detalleDialog .det-close:hover{ border-color: var(--amber); color: var(--amber); }
   #detalleDialog .det-body{ padding: 20px 26px 26px; overflow-y:auto; }
-  #detalleDialog .det-empty{ color: var(--text-faint); font-size:13px; padding: 20px 0; }
+  .det-empty{ color: var(--text-faint); font-size:13px; padding: 20px 0; }
   .det-item{
     position:relative; padding: 4px 0 20px 24px; border-left: 1.5px solid var(--border);
   }
@@ -1143,6 +1160,10 @@ function pintarFilasCP(filas){
           <span class="estado-pill ${claseEstado(f.estado_actual)}">${escapeHtml(etiquetaEstado(f.estado_actual))}</span>
           <div class="cp-compare-titulo">${escapeHtml(f.titulo || '(sin título)')}</div>
           <div class="cp-compare-meta">Ruta ${escapeHtml(f.equipo_ruta_id || '—')} · creada ${escapeHtml(formatearFechaCorta(f.creado_en))}</div>
+          <button type="button" class="cp-expand-btn btn-expandir-bd" data-nc-id="${escapeHtml(f.nc_id)}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+            Ver historial completo
+          </button>
         </div>
         <div class="cp-compare-divider">⇄</div>
         <div class="cp-compare-card formap">
@@ -1153,6 +1174,7 @@ function pintarFilasCP(filas){
             <div class="cp-compare-meta">${formap.comentario ? escapeHtml(formap.comentario) : 'Sin respuesta/comentario todavía.'}</div>
           ` : `<div class="cp-compare-meta" style="color:var(--text-faint);">Sin match en FORMAP para esta ruta.</div>`}
         </div>
+        <div class="cp-expand-panel" id="expand-bd-${escapeHtml(f.nc_id)}" hidden></div>
         ${f.es_candidata ? `<button class="btn danger btn-cp-cerrar">Cerrar en bd_incidencias</button>` : ''}
       </div>
     `;
@@ -1164,6 +1186,47 @@ function pintarFilasCP(filas){
       if (fila) abrirConfirmacionCP(fila);
     });
   });
+  lista.querySelectorAll('.btn-expandir-bd').forEach(btn => {
+    btn.addEventListener('click', () => toggleHistorialBD(btn));
+  });
+}
+
+async function toggleHistorialBD(btn){
+  const ncId = btn.dataset.ncId;
+  const panel = $('expand-bd-' + ncId);
+  const abriendo = panel.hidden;
+  panel.hidden = !abriendo;
+  btn.classList.toggle('open', abriendo);
+  if (!abriendo || panel.dataset.cargado === '1') return;
+
+  panel.innerHTML = `<div class="det-empty">Cargando historial...</div>`;
+  try {
+    const nc = await llamar('/api/incidencias/detalle/' + ncId);
+    const historial = nc.historial || [];
+    panel.innerHTML = `
+      <div class="cp-expand-head">Flujo de gestión · bd_incidencias</div>
+      ${historial.length === 0 ? `<div class="det-empty">Sin historial registrado.</div>` : historial.map(h => `
+        <div class="det-item">
+          <div class="det-item-top">
+            <div>
+              <div class="det-item-usuario">${escapeHtml(h.actor_nombre || 'Sistema')}</div>
+              <div class="det-item-fecha">${escapeHtml(formatearFechaDet(h.fecha))}</div>
+            </div>
+            <span class="det-item-estado">${escapeHtml(h.estado_nuevo || h.tipo || '—')}</span>
+          </div>
+          ${h.comentario ? `<div class="det-item-comentario">${escapeHtml(h.comentario)}</div>` : ''}
+          ${h.fotos && h.fotos.length ? `
+            <div class="det-item-adjuntos">
+              ${h.fotos.map(foto => `<a href="${escapeHtml(foto.dropbox_url)}" target="_blank" rel="noopener">${escapeHtml(foto.nombre_original || 'evidencia')}</a>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `).join('')}
+    `;
+    panel.dataset.cargado = '1';
+  } catch (e) {
+    panel.innerHTML = `<div class="det-empty">Error al cargar historial: ${escapeHtml(e.data?.detail || e.status)}</div>`;
+  }
 }
 
 function abrirConfirmacionCP(fila){

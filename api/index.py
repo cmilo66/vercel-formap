@@ -218,6 +218,21 @@ def incidencias_por_ruta(equipo_ruta_id: str, x_service_key: str = Header(defaul
         raise HTTPException(status_code=500, detail=f"Error consultando bd_incidencias: {e}")
 
 
+@app.get("/api/incidencias/detalle/{nc_id}")
+def incidencias_detalle(nc_id: str, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Solo lectura contra bd_incidencias — cabecera + historial completo (el
+    'Flujo de gestión') de una NC, para expandir su tarjeta en el panel sin
+    salir a nc_deploy."""
+    requiere_service_key(x_service_key, authorization)
+    try:
+        nc = db_incidencias.detalle_nc(nc_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando bd_incidencias: {e}")
+    if nc is None:
+        raise HTTPException(status_code=404, detail="NC no encontrada.")
+    return nc
+
+
 @app.get("/api/incidencias/listado")
 def incidencias_listado(fecha_inicio: str, fecha_fin: str, estado: str = "", x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
     """Solo lectura contra bd_incidencias — tabla de estado (abiertas y cerradas)
