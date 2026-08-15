@@ -10,6 +10,7 @@ Regla de oro: `/api/formap/cerrar` es la ÚNICA ruta de escritura, y solo la deb
 llamar tu sistema (nc_deploy) cuando un humano confirma el cierre ahí. Este
 servicio nunca decide cerrar nada por su cuenta.
 """
+import hmac
 import os
 import sys
 from functools import wraps
@@ -40,7 +41,7 @@ def requiere_service_key(x_service_key: str = Header(default=None), authorizatio
     Nunca se expone el SERVICE_KEY real al navegador — el panel usa su propio
     usuario/contraseña y recibe un token firmado, no la clave de servicio."""
     esperado = os.environ.get("SERVICE_KEY")
-    if esperado and x_service_key == esperado:
+    if esperado and x_service_key and hmac.compare_digest(x_service_key, esperado):
         return
     if authorization and authorization.startswith("Bearer "):
         token = authorization[len("Bearer "):]

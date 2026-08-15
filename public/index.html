@@ -652,6 +652,12 @@ function fechaFormapDesde(inputDate){
   return `${d}/${m}/${y} 0:00:00`;
 }
 
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 function renderResultados(hallazgos){
   const cont = $('resultados');
   if (!hallazgos || hallazgos.length === 0) {
@@ -663,26 +669,26 @@ function renderResultados(hallazgos){
     const card = document.createElement('div');
     card.className = 'card';
     card.style.animationDelay = (i * 0.04) + 's';
-    const titulo = h.observacion_valor || h.item_valor || h.item_label || `NC FORMAP ${h.nc_formap_id}`;
+    const titulo = escapeHtml(h.observacion_valor || h.item_valor || h.item_label || `NC FORMAP ${h.nc_formap_id}`);
     const cerrada = !!h.respuesta_comentario;
     card.innerHTML = `
       <div class="card-top">
         <div>
-          <div class="card-id">NC #${h.nc_formap_id} · ruta ${h.equipo_ruta_id || '—'}</div>
+          <div class="card-id">NC #${escapeHtml(h.nc_formap_id)} · ruta ${escapeHtml(h.equipo_ruta_id || '—')}</div>
           <div class="card-title">${titulo}</div>
         </div>
-        <span class="badge ${cerrada ? 'closed' : 'info'}">${cerrada ? 'Con respuesta' : h.subestado_formap || h.estado_formap || 'Sin respuesta'}</span>
+        <span class="badge ${cerrada ? 'closed' : 'info'}">${cerrada ? 'Con respuesta' : escapeHtml(h.subestado_formap || h.estado_formap || 'Sin respuesta')}</span>
       </div>
       <div class="card-meta">
-        <div class="meta-item"><div class="k">Formulario</div><div class="v">${h.formulario || '—'}</div></div>
-        <div class="meta-item"><div class="k">Auditado por</div><div class="v">${h.auditado_por || '—'}</div></div>
-        <div class="meta-item"><div class="k">Fecha NC</div><div class="v">${h.fecha_nc || '—'}</div></div>
+        <div class="meta-item"><div class="k">Formulario</div><div class="v">${escapeHtml(h.formulario || '—')}</div></div>
+        <div class="meta-item"><div class="k">Auditado por</div><div class="v">${escapeHtml(h.auditado_por || '—')}</div></div>
+        <div class="meta-item"><div class="k">Fecha NC</div><div class="v">${escapeHtml(h.fecha_nc || '—')}</div></div>
       </div>
-      ${h.respuesta_comentario ? `<div class="card-comentario">${h.respuesta_comentario}</div>` : ''}
-      ${h.evidencias && h.evidencias.length ? `<div class="card-evid">${h.evidencias.map(e => `<a href="https://formap.co${(e.url||'').replace(/\\\\/g,'/')}" target="_blank" rel="noopener">${e.titulo || 'evidencia'}</a>`).join('')}</div>` : ''}
+      ${h.respuesta_comentario ? `<div class="card-comentario">${escapeHtml(h.respuesta_comentario)}</div>` : ''}
+      ${h.evidencias && h.evidencias.length ? `<div class="card-evid">${h.evidencias.map(e => `<a href="${escapeHtml('https://formap.co' + (e.url||'').replace(/\\\\/g,'/'))}" target="_blank" rel="noopener">${escapeHtml(e.titulo || 'evidencia')}</a>`).join('')}</div>` : ''}
       <div class="card-actions">
-        <button class="btn secondary btn-detalle" data-id="${h.nc_formap_id}">Ver detalle</button>
-        <button class="btn danger btn-cerrar" data-id="${h.nc_formap_id}">Cerrar en FORMAP</button>
+        <button class="btn secondary btn-detalle" data-id="${escapeHtml(h.nc_formap_id)}">Ver detalle</button>
+        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}">Cerrar en FORMAP</button>
       </div>
     `;
     cont.appendChild(card);
@@ -729,21 +735,21 @@ async function verDetalle(ncFormapId){
       <div class="det-item">
         <div class="det-item-top">
           <div>
-            <div class="det-item-usuario">${o.usuario || 'Usuario desconocido'}</div>
-            <div class="det-item-fecha">${formatearFechaDet(o.fecha)}</div>
+            <div class="det-item-usuario">${escapeHtml(o.usuario || 'Usuario desconocido')}</div>
+            <div class="det-item-fecha">${escapeHtml(formatearFechaDet(o.fecha))}</div>
           </div>
-          <span class="det-item-estado">${o.estado || '—'}</span>
+          <span class="det-item-estado">${escapeHtml(o.estado || '—')}</span>
         </div>
-        ${o.comentario ? `<div class="det-item-comentario">${o.comentario}</div>` : ''}
+        ${o.comentario ? `<div class="det-item-comentario">${escapeHtml(o.comentario)}</div>` : ''}
         <div class="det-item-adjuntos">
-          ${o.adjunto_url ? `<a href="${o.adjunto_url}" target="_blank" rel="noopener">${o.adjunto_nombre || 'adjunto'}</a>` : ''}
-          ${o.adjunto2_url ? `<a href="${o.adjunto2_url}" target="_blank" rel="noopener">${o.adjunto2_nombre || 'adjunto 2'}</a>` : ''}
+          ${o.adjunto_url ? `<a href="${escapeHtml(o.adjunto_url)}" target="_blank" rel="noopener">${escapeHtml(o.adjunto_nombre || 'adjunto')}</a>` : ''}
+          ${o.adjunto2_url ? `<a href="${escapeHtml(o.adjunto2_url)}" target="_blank" rel="noopener">${escapeHtml(o.adjunto2_nombre || 'adjunto 2')}</a>` : ''}
         </div>
       </div>
     `).join('');
   } catch (e) {
     $('detSub').textContent = '';
-    $('detBody').innerHTML = `<div class="det-empty">Error al cargar detalle: ${e.data?.detail || e.status}</div>`;
+    $('detBody').innerHTML = `<div class="det-empty">Error al cargar detalle: ${escapeHtml(e.data?.detail || e.status)}</div>`;
   }
 }
 
