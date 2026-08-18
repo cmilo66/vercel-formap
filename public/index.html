@@ -1028,11 +1028,13 @@ async function abrirConfirmacion(ncFormapId, equipoRutaId){
         <div style="border:1px solid var(--border-bright); padding:10px 12px; margin-bottom:8px; text-align:left;">
           <div style="font-weight:600; color:var(--text); margin-bottom:4px;">${escapeHtml(nc.titulo || '(sin título)')}</div>
           <div style="font-family:var(--mono); font-size:11px; color:var(--amber); margin-bottom:4px;">${escapeHtml(nc.estado_actual || '—')}</div>
-          ${nc.ultimo_comentario ? `<div style="font-size:12px; color:var(--text-dim);">${escapeHtml(nc.ultimo_comentario)}</div>` : ''}
+          ${nc.ultimo_comentario ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">${escapeHtml(nc.ultimo_comentario)}</div>` : ''}
+          ${nc.fotos && nc.fotos.length ? `<div class="adjuntos-grid">${nc.fotos.map(f => renderAdjuntoHtml(f.dropbox_url, f.nombre_original, f.tipo)).join('')}</div>` : ''}
         </div>
       `).join('')}
       <div style="margin-top:10px;">¿Autorizas mandar este cierre a FORMAP (NC #${escapeHtml(ncFormapId)})? ${advertencia}</div>
     `;
+    activarVisorFotos($('confirmText'));
   }
 }
 

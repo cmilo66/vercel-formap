@@ -39,9 +39,11 @@ def conectar():
 def buscar_por_equipo_ruta_id(equipo_ruta_id: str) -> list[dict]:
     """Dado el equipo_ruta_id de un hallazgo de FORMAP, busca NC ya existentes en
     bd_incidencias.no_conformidades con ese mismo equipo_ruta_id, trayendo el
-    último comentario/estado de su historial (para decidir si hace falta
-    'actualizar cierre'). Puede devolver más de una fila — equipo_ruta_id no es
-    único en bd_incidencias (varias NC pueden compartir la misma ruta/equipo)."""
+    último comentario/estado de su historial y toda la evidencia (fotos/PDF)
+    asociada — para decidir si hace falta 'actualizar cierre' con la evidencia
+    ya a la vista, sin tener que abrir nc_deploy aparte. Puede devolver más de
+    una fila — equipo_ruta_id no es único en bd_incidencias (varias NC pueden
+    compartir la misma ruta/equipo)."""
     conn = conectar()
     try:
         with conn.cursor() as cur:
@@ -66,7 +68,23 @@ def buscar_por_equipo_ruta_id(equipo_ruta_id: str) -> list[dict]:
                 """,
                 (equipo_ruta_id, CENTRO_OPERATIVO_PERMITIDO),
             )
-            return cur.fetchall()
+            filas = cur.fetchall()
+            if not filas:
+                return filas
+
+            ids = [f["id"] for f in filas]
+            marcadores = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f"""SELECT no_conformidad_id, dropbox_url, nombre_original, tipo
+                    FROM nc_fotos WHERE no_conformidad_id IN ({marcadores})""",
+                ids,
+            )
+            fotos_por_nc = {}
+            for foto in cur.fetchall():
+                fotos_por_nc.setdefault(foto["no_conformidad_id"], []).append(foto)
+            for fila in filas:
+                fila["fotos"] = fotos_por_nc.get(fila["id"], [])
+            return filas
     finally:
         conn.close()
 
