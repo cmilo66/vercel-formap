@@ -111,7 +111,14 @@ class FormapClient:
         return resp
 
     def _verificar_sesion(self, resp: requests.Response):
-        if "Account/Login" in resp.url or "txtLoginUserName" in resp.text[:2000]:
+        # OJO: antes solo miraba los primeros 2000 caracteres de resp.text --
+        # la página de login real trae tanto <head>/CSS antes del formulario
+        # que "txtLoginUserName" cae después del corte, y la detección de
+        # sesión expirada fallaba en silencio (confirmado 2026-08-18: un
+        # fetch de detalle_nc trajo la página de login completa, 91KB, sin
+        # que esto la detectara). Revisar el texto completo es barato para
+        # respuestas de este tamaño (nunca son de varios MB).
+        if "Account/Login" in resp.url or "txtLoginUserName" in resp.text:
             raise FormapSessionExpirada("La sesión de FORMAP expiró o es inválida — hace falta relogin asistido.")
 
     # ── Catálogos (para armar filtros de búsqueda) ──────────────────────────────────
