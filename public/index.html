@@ -1043,16 +1043,24 @@ async function abrirConfirmacion(ncFormapId, equipoRutaId, yaConciliadaEnFormap)
     ? `Esta NC ya tiene respuesta en FORMAP — solo se va a marcar como Resuelta, no se sube nada nuevo (la selección de abajo no se usa).`
     : `Esta NC <strong>todavía no tiene respuesta en FORMAP</strong> — elige abajo cuál paso del historial de PIGO es el que de verdad explica el cierre, para subirlo como observación antes de marcar Resuelta.`;
 
+  // Solo tiene sentido elegir entre los pasos que de verdad EXPLICAN un cierre
+  // -- "abierta" (la creación) y "en_proceso" (normalmente sin comentario) no
+  // sirven para conciliar la NC en FORMAP, así que ni se muestran como opción.
+  const ESTADOS_CIERRE = new Set(['parcialmente_cerrada', 'cerrada', 'archivada']);
+
   $('confirmText').innerHTML = `
     <div style="margin-bottom:10px;">${aviso_subida}</div>
     ${coincidencias.map((nc, i) => {
       const detalle = detalles[i];
-      const historial = (detalle && detalle.historial) || [];
+      const historialCompleto = (detalle && detalle.historial) || [];
+      const historial = historialCompleto
+        .map((h, hi) => ({ h, hi }))
+        .filter(({ h }) => ESTADOS_CIERRE.has(h.estado_nuevo));
       return `
         <div style="border:1px solid var(--border-bright); padding:10px 12px; margin-bottom:8px; text-align:left;">
           <div style="font-weight:600; color:var(--text); margin-bottom:4px;">${escapeHtml(nc.titulo || '(sin título)')}</div>
           <div style="font-family:var(--mono); font-size:11px; color:var(--amber); margin-bottom:8px;">${escapeHtml(nc.estado_actual || '—')}</div>
-          ${historial.length === 0 ? `<div style="font-size:12px; color:var(--text-faint);">Sin historial registrado.</div>` : historial.map((h, hi) => `
+          ${historial.length === 0 ? `<div style="font-size:12px; color:var(--text-faint);">Sin pasos de cierre en el historial (solo abierta/en proceso).</div>` : historial.map(({ h, hi }) => `
             <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--border); cursor:${yaConciliadaEnFormap ? 'default' : 'pointer'};">
               <input type="radio" name="hist-${escapeHtml(nc.id)}" class="radio-historial" data-nc-id="${escapeHtml(nc.id)}" data-hist-index="${hi}" style="margin-top:4px;" ${yaConciliadaEnFormap ? 'disabled' : ''}>
               <div style="flex:1;">
