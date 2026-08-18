@@ -547,7 +547,7 @@
     </div>
     <div class="actions">
       <button class="btn" id="btnBuscar">Buscar en FORMAP</button>
-      <span class="hint" id="buscarHint">El panel arma el catálogo de rutas de FORMAP solo, no hace falta que lo escribas.</span>
+      <span class="hint" id="buscarHint">Abre FORMAP con un bot real (~15-20s) y selecciona todas las rutas del rango — no depende de una lista fija.</span>
     </div>
   </div>
 
@@ -1077,21 +1077,13 @@ $('btnBuscar').addEventListener('click', async () => {
   const btn = $('btnBuscar');
   btn.disabled = true;
   try {
-    btn.textContent = 'Armando catálogo de rutas...';
-    const catalogo = await llamar(`/api/formap/rutas-automaticas?fecha_inicio=${fi}&fecha_fin=${ff}`);
-    if (!catalogo.ruta_ids) {
-      toast('FORMAP no reportó rutas para ese rango de fechas.', 'error');
-      return;
-    }
-
-    btn.textContent = 'Buscando...';
-    const r = await llamar('/api/formap/buscar-por-ruta', {
+    btn.textContent = 'Bot abriendo FORMAP...';
+    const r = await llamar('/api/formap/buscar-por-ruta-bot', {
       method: 'POST',
       body: JSON.stringify({
         equipo_ruta_id: equipoRuta,
-        fecha_inicio: fechaFormapDesde(fi),
-        fecha_fin: fechaFormapDesde(ff),
-        ruta_ids: catalogo.ruta_ids,
+        fecha_inicio: fi,
+        fecha_fin: ff,
       }),
     });
     renderResultados(r.hallazgos);

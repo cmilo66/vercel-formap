@@ -16,9 +16,11 @@ import sys
 from functools import wraps
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, RUTA_IDS_CONOCIDOS, parsear_nc  # noqa: E402
+from lib.formap_bot import buscar_por_ruta_bot, FormapBotSesionExpirada  # noqa: E402
 from lib import session_store  # noqa: E402
 from lib import db, db_incidencias, db_incidencias_escritura, matching, auth  # noqa: E402
 
@@ -202,6 +204,28 @@ async def buscar_por_ruta(request: Request, x_service_key: str = Header(default=
         return {"hallazgos": hallazgos}
 
     return _con_manejo_sesion(_hacer)
+
+
+@app.post("/api/formap/buscar-por-ruta-bot")
+async def buscar_por_ruta_bot_endpoint(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Igual que buscar-por-ruta, pero SIN lista fija de rutas — abre un
+    navegador real (Playwright) y sigue el flujo completo del formulario de
+    FORMAP en el momento. Más lento (~15-20s) pero nunca queda desactualizado
+    con rutas nuevas que FORMAP agregue. Body: {equipo_ruta_id, fecha_inicio,
+    fecha_fin} con fechas en YYYY-MM-DD (formato de los date pickers).
+    Playwright (sync) no puede correr dentro del event loop de asyncio, así
+    que se despacha en un hilo aparte con run_in_threadpool."""
+    requiere_service_key(x_service_key, authorization)
+    body = await request.json()
+    try:
+        hallazgos = await run_in_threadpool(
+            buscar_por_ruta_bot, body["equipo_ruta_id"], body["fecha_inicio"], body["fecha_fin"],
+        )
+        return {"hallazgos": hallazgos}
+    except FormapBotSesionExpirada as e:
+        raise HTTPException(status_code=409, detail={"error": str(e), "sesion_expirada": True})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error del bot: {e}")
 
 
 # ── Integración de solo lectura con bd_incidencias (producción de nc_deploy) ────
