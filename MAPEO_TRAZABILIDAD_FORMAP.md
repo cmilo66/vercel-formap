@@ -76,17 +76,24 @@ del modal de detalle). Es decir, el flujo real para cerrar una NC en FORMAP es:
   FORMAP.
 - Para automatizar un cierre de verdad en FORMAP (no solo en `bd_incidencias`) hacen
   falta DOS llamadas en orden: primero `SetObservaciones` (con el comentario/evidencia
-  que ya trae el bot desde `bd_incidencias` o desde donde se origine el cierre),
-  después `NcResuelta`. Ninguna de las dos está implementada como escritura hoy —
-  todo lo que el panel hace hacia FORMAP sigue siendo de solo lectura.
+  elegidos por el humano en el panel), después `NcResuelta`.
 - No se encontró un tercer estado "Conciliada" explícito en la UI — es un estado
   implícito (tener ≥1 fila en `HistorialConciliacion`), no una columna visible.
 
-## 6. Qué falta para confirmar al 100%
+## 6. VERIFICADO END-TO-END (2026-08-18)
 
-Esto es ingeniería inversa sobre el JS y datos reales, no la documentación de FORMAP —
-sigue siendo una hipótesis bien fundamentada, no un hecho verificado end-to-end. Antes
-de automatizar una escritura real contra FORMAP con esto, hace falta:
-1. Probar `SetObservaciones` + `NcResuelta` contra UNA sola NC de prueba.
-2. Verificar manualmente en FORMAP que el Sub Estado sí cambió a `Resuelta` como se
-   espera.
+Ya no es solo hipótesis: se probó contra una NC real (`equipo_ruta_id=38448968`,
+NC FORMAP `#166182`) desde el panel — `POST /api/formap/cerrar` con el comentario y
+la evidencia (PDF) que el humano eligió del historial de `bd_incidencias`. Resultado,
+confirmado por una consulta aparte, independiente, directo a FORMAP:
+
+- El comentario elegido quedó registrado tal cual en `HistorialConciliacion`
+  (`getTablaHistorialConciliacion`), con el PDF adjunto correctamente enlazado.
+- FORMAP agregó su propio registro automático `"No Conformidad Resuelta"` al
+  historial, justo después.
+- `Sub Estado NC` pasó de `Generada` a **`Resuelta`** — el ciclo completo
+  (`SetObservaciones` → `NcResuelta`) funciona exactamente como se mapeó.
+
+Con esto, `formap_client.agregar_observacion()` y `marcar_resuelta()` dejan de ser
+pura teoría — quedan confirmadas contra producción, aunque siguen siendo de uso
+manual (un humano elige y autoriza cada cierre desde el panel), no automatizadas.
