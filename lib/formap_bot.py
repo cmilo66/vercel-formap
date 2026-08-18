@@ -73,11 +73,6 @@ def buscar_por_ruta_bot(equipo_ruta_id: str, fecha_inicio: str, fecha_fin: str) 
             f"No existe {STORAGE_STATE} — correr test_login.py en formap-bot/ primero."
         )
 
-    y1, m1, d1 = fecha_inicio.split("-")
-    y2, m2, d2 = fecha_fin.split("-")
-    fecha_inicio_formap = f"{y1}-{m1}-{d1}"
-    fecha_fin_formap = f"{y2}-{m2}-{d2}"
-
     respuestas_html = []
 
     def _capturar(response):
@@ -100,8 +95,8 @@ def buscar_por_ruta_bot(equipo_ruta_id: str, fecha_inicio: str, fecha_fin: str) 
             browser.close()
             raise FormapBotSesionExpirada("La sesión guardada expiró — hace falta relogin asistido (test_login.py).")
 
-        page.fill("#TimeInicio", fecha_inicio_formap)
-        page.fill("#TimeFin", fecha_fin_formap)
+        page.fill("#TimeInicio", fecha_inicio)
+        page.fill("#TimeFin", fecha_fin)
 
         _select_all(page, "ms-list-2")
         _select_all(page, "ms-list-3")

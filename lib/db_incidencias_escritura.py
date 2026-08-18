@@ -22,6 +22,12 @@ import pymysql
 BASE_DATOS_PERMITIDA = "bd_incidencias"
 BOT_USER_ID = "94a4ad3f-97ff-11f1-93bd-fa163efdd0ae"  # usuarios('Bot FORMAP') en bd_incidencias
 
+# Mismo alcance que db_incidencias.py (solo lectura) -- este es el único punto
+# de ESCRITURA de todo el servicio, así que la validación de alcance importa
+# más aquí que en ningún otro lado. No asumir que el nc_id que llega ya viene
+# filtrado río arriba (defensa en profundidad).
+CENTRO_OPERATIVO_PERMITIDO = 1
+
 
 def conectar():
     return pymysql.connect(
@@ -65,10 +71,13 @@ def cerrar_nc(nc_id: str, nc_formap_id: str, equipo_ruta_id: str, comentario_for
     conn = conectar()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT estado_actual, version FROM no_conformidades WHERE id=%s FOR UPDATE", (nc_id,))
+            cur.execute(
+                "SELECT estado_actual, version FROM no_conformidades WHERE id=%s AND centro_operativo_id=%s FOR UPDATE",
+                (nc_id, CENTRO_OPERATIVO_PERMITIDO),
+            )
             row = cur.fetchone()
             if row is None:
-                raise RuntimeError("NC no encontrada en bd_incidencias.")
+                raise RuntimeError("NC no encontrada en bd_incidencias (o no pertenece al centro operativo permitido).")
             if row["estado_actual"] == "cerrada":
                 conn.rollback()
                 return {"ok": False, "motivo": "ya_cerrada"}

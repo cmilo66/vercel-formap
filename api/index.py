@@ -256,9 +256,18 @@ async def buscar_hibrido(request: Request, x_service_key: str = Header(default=N
             fecha_fin=fecha_fin_formap, ruta_ids=ruta_ids,
         )
 
-    hallazgos = _con_manejo_sesion(_intento_rapido)
-    if hallazgos:
-        return {"hallazgos": hallazgos, "via": "rapido"}
+    # OJO: si el camino rápido falla por sesión expirada (no solo "0
+    # resultados"), esto también debe caer al bot -- por eso NO se usa
+    # _con_manejo_sesion aquí (esa función relanza como HTTPException de una
+    # vez, lo que se saltaría el fallback por completo).
+    try:
+        hallazgos = _intento_rapido()
+        if hallazgos:
+            return {"hallazgos": hallazgos, "via": "rapido"}
+    except FormapSessionExpirada:
+        hallazgos = []  # sesión rápida muerta -> el bot usa su propia sesión (storage_state.json)
+    except Exception:
+        hallazgos = []  # timeout/error de red contra FORMAP -> tampoco descarta el fallback
 
     try:
         hallazgos_bot = await run_in_threadpool(
@@ -345,7 +354,7 @@ def cierre_periodico_tabla(fecha_inicio: str, fecha_fin: str, estado: str = "", 
 
     fecha_ini_formap = _iso_a_formap(fecha_inicio)
     fecha_fin_formap = _iso_a_formap(fecha_fin)
-    ruta_ids = ",".join(RUTA_IDS_CONOCIDOS)
+    ruta_ids = ",".join(RUTA_IDS_CONOCIDOS + rutas_aprendidas.cargar())
     ESTADOS_PENDIENTES = {"abierta", "en_proceso", "parcialmente_cerrada"}
 
     def _hacer():
