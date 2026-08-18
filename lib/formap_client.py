@@ -211,10 +211,15 @@ class FormapClient:
         que el cambio fue el esperado antes de confiar en la respuesta del endpoint.
         """
         resp = self._post("/NO_Conformidad/NcResuelta", {"id": nc_formap_id})
-        try:
-            return {"ok": bool(resp.text.strip()), "raw": resp.text}
-        except Exception:
-            return {"ok": False, "raw": resp.text}
+        # OJO: antes esto solo miraba si el texto venía vacío (igual que el JS
+        # del sitio: `if (data != '')`), sin revisar el status HTTP -- un 500 de
+        # FORMAP con una página de error (texto no vacío) se habría reportado
+        # como "cierre exitoso" siendo mentira. requests NO lanza excepción por
+        # su cuenta en 4xx/5xx (no hay raise_for_status), así que hay que
+        # comprobarlo explícitamente antes de confiar en el cuerpo.
+        if resp.status_code != 200:
+            return {"ok": False, "status_code": resp.status_code, "raw": resp.text}
+        return {"ok": bool(resp.text.strip()), "status_code": resp.status_code, "raw": resp.text}
 
 
 def _texto(el) -> str:

@@ -1146,7 +1146,15 @@ $('btnConfirmar').addEventListener('click', async () => {
       method: 'POST',
       body: JSON.stringify({ nc_formap_id: pendienteCierre }),
     });
-    toast(r.ok ? 'Cierre enviado correctamente.' : 'FORMAP respondió sin confirmar el cierre.', r.ok ? 'ok' : 'error');
+    // Endpoint EXPERIMENTAL, nunca verificado end-to-end -- se deja la
+    // respuesta cruda en consola para poder cotejarla a mano contra lo que
+    // de verdad haya cambiado en FORMAP, no confiar solo en este mensaje.
+    console.log('Respuesta cruda de /api/formap/cerrar para NC #' + pendienteCierre + ':', r);
+    toast(
+      (r.ok ? 'FORMAP respondió OK (status ' + r.status_code + ') — ' : 'FORMAP NO confirmó el cierre (status ' + r.status_code + ') — ')
+      + 'verifica en FORMAP antes de confiar en esto.',
+      r.ok ? 'ok' : 'error',
+    );
   } catch (e) {
     toast('Error al cerrar: ' + (e.data?.detail || e.status), 'error');
   }
