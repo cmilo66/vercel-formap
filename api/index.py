@@ -19,7 +19,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, RUTA_IDS_CONOCIDOS, parsear_nc  # noqa: E402
+from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, RUTA_IDS_CONOCIDOS, parsear_nc, descargar_archivo_externo  # noqa: E402
 from lib.formap_bot import buscar_por_ruta_bot, FormapBotSesionExpirada  # noqa: E402
 from lib import session_store, rutas_aprendidas  # noqa: E402
 from lib import db, db_incidencias, db_incidencias_escritura, matching, auth  # noqa: E402
@@ -422,9 +422,53 @@ def detalle(nc_formap_id: str, x_service_key: str = Header(default=None), author
 # ── Escritura — ÚNICO disparador válido, siempre iniciado por tu sistema ────────
 @app.post("/api/formap/cerrar")
 async def cerrar(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
-    """EXPERIMENTAL — ver advertencia en formap_client.marcar_resuelta().
-    No integrar a ningún flujo automático sin antes probar manualmente contra
-    una sola NC y confirmar en FORMAP que hizo lo esperado."""
+    """EXPERIMENTAL — nunca probado end-to-end contra FORMAP. Body:
+    {nc_formap_id, equipo_ruta_id?}.
+
+    Si la NC YA tiene una observación en FORMAP (ya está conciliada — ver
+    MAPEO_TRAZABILIDAD_FORMAP.md), llama directo a NcResuelta, sin subir nada.
+
+    Si NO tiene ninguna observación todavía, hace falta conciliarla primero:
+    busca el comentario y la evidencia (foto y/o PDF, hasta 2 archivos) en
+    bd_incidencias por equipo_ruta_id, descarga esos archivos, y los sube a
+    FORMAP vía SetObservaciones — recién ahí llama a NcResuelta. Si no hay
+    equipo_ruta_id o no hay comentario/evidencia en bd_incidencias, no
+    inventa nada: devuelve ok=False con el motivo, sin tocar FORMAP."""
     requiere_service_key(x_service_key, authorization)
     body = await request.json()
-    return _con_manejo_sesion(lambda: _cliente().marcar_resuelta(body["nc_formap_id"]))
+    nc_formap_id = body["nc_formap_id"]
+    equipo_ruta_id = body.get("equipo_ruta_id")
+
+    def _hacer():
+        cliente = _cliente()
+
+        historial = cliente.historial_conciliacion(nc_formap_id)
+        if not historial:
+            if not equipo_ruta_id:
+                return {"ok": False, "motivo": "sin_conciliar_sin_equipo_ruta_id"}
+
+            try:
+                coincidencias = db_incidencias.buscar_por_equipo_ruta_id(equipo_ruta_id)
+            except Exception as e:
+                return {"ok": False, "motivo": "error_leyendo_bd_incidencias", "detalle": str(e)}
+
+            if not coincidencias or not coincidencias[0].get("ultimo_comentario"):
+                return {"ok": False, "motivo": "sin_evidencia_en_pigo"}
+
+            nc_pigo = coincidencias[0]
+            archivos = []
+            for foto in (nc_pigo.get("fotos") or [])[:2]:
+                descarga = descargar_archivo_externo(foto["dropbox_url"])
+                if descarga:
+                    contenido, tipo_mime = descarga
+                    archivos.append((foto.get("nombre_original") or "evidencia", contenido, tipo_mime))
+
+            resultado_obs = cliente.agregar_observacion(
+                nc_formap_id, observacion=nc_pigo["ultimo_comentario"], archivos=archivos,
+            )
+            if not resultado_obs.get("ok"):
+                return {"ok": False, "motivo": "fallo_conciliacion", "detalle_conciliacion": resultado_obs}
+
+        return cliente.marcar_resuelta(nc_formap_id)
+
+    return _con_manejo_sesion(_hacer)

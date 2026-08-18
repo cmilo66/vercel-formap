@@ -7,11 +7,13 @@ un Chrome real manda automáticamente. Replicándolos exactamente, `requests` pu
 funciona sin necesidad de Playwright/navegador para todo lo que NO sea el login
 (el login sigue requiriendo resolver un reCAPTCHA v2 a mano, ver `sesion.py`).
 """
+import mimetypes
 import re
 import time
 from html import unescape
 
 import requests
+
 
 BASE_URL = "https://formap.co"
 
@@ -28,6 +30,28 @@ BROWSER_HEADERS = {
     "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
     "referer": f"{BASE_URL}/NO_Conformidad/Index",
 }
+
+
+def descargar_archivo_externo(url: str) -> tuple[bytes, str] | None:
+    """Descarga un archivo (foto o PDF) desde una URL externa (ej. dropbox_url
+    de bd_incidencias, que para NC importadas de FORMAP suele ser una imagen
+    servida por el propio formap.co) para poder re-subirlo a FORMAP. Devuelve
+    (contenido_bytes, content_type) o None si falla — nunca lanza, quien
+    llame decide qué hacer si no hay evidencia disponible.
+
+    Manda los mismos BROWSER_HEADERS que el resto del cliente — sin ellos,
+    formap.co devuelve vacío/bloquea la petición (mismo hallazgo que motivó
+    todo BROWSER_HEADERS: sin sec-ch-ua* no hay respuesta real)."""
+    try:
+        headers = {k: v for k, v in BROWSER_HEADERS.items() if k != "content-type"}
+        resp = requests.get(url, headers=headers, timeout=20)
+        if resp.status_code != 200:
+            return None
+        tipo_mime = resp.headers.get("Content-Type") or mimetypes.guess_type(url)[0] or "application/octet-stream"
+        return resp.content, tipo_mime.split(";")[0].strip()
+    except requests.RequestException:
+        return None
+
 
 # Catálogo fijo observado para el proyecto "Calidad de Obras SOL" (ProyectoId=81) /
 # contratista FSCR INGENIERIA. Si el usuario opera otro proyecto/contratista hay que
@@ -199,6 +223,38 @@ class FormapClient:
         return {"observaciones": observaciones}
 
     # ── Escritura — cerrar NC en FORMAP (EXPERIMENTAL, no verificado end-to-end) ────
+    def agregar_observacion(self, nc_formap_id: str, observacion: str, estado: str = "1", archivos: list[tuple[str, bytes, str]] | None = None) -> dict:
+        """POST /NO_Conformidad/SetObservaciones (multipart/form-data) — agrega
+        una observación/respuesta con evidencia a la NC. Es lo que en FORMAP
+        "concilia" la NC (ver MAPEO_TRAZABILIDAD_FORMAP.md) — sin esto,
+        marcar_resuelta() falla si la NC no tenía ya una observación previa.
+
+        estado='1' -> 'Aplica' (único valor observado en el dropdown real de
+        FORMAP para esta operación). archivos: hasta 2 tuplas
+        (nombre_archivo, contenido_bytes, content_type) — acepta cualquier
+        tipo, FORMAP no distingue foto de documento en este endpoint (usa
+        UploadFile/UploadFile2 para ambos igual).
+
+        EXPERIMENTAL — nunca probado end-to-end contra FORMAP."""
+        data = {"Estados": estado, "Observacion": observacion, "NoConformidad": nc_formap_id}
+        files = {}
+        for i, (nombre, contenido, tipo) in enumerate((archivos or [])[:2], start=1):
+            campo = "UploadFile" if i == 1 else "UploadFile2"
+            files[campo] = (nombre, contenido, tipo or "application/octet-stream")
+
+        # BROWSER_HEADERS fija Content-Type a x-www-form-urlencoded a nivel de
+        # sesión — para multipart hay que quitarlo en ESTA llamada puntual
+        # (headers={"content-type": None}), si no `requests` no genera el
+        # boundary correcto y FORMAP no reconoce los archivos.
+        resp = self.session.post(
+            f"{BASE_URL}/NO_Conformidad/SetObservaciones", data=data, files=files,
+            headers={"content-type": None}, timeout=30,
+        )
+        self._verificar_sesion(resp)
+        if resp.status_code != 200:
+            return {"ok": False, "status_code": resp.status_code, "raw": resp.text}
+        return {"ok": bool(resp.text.strip()), "status_code": resp.status_code, "raw": resp.text}
+
     def marcar_resuelta(self, nc_formap_id: str) -> dict:
         """POST /NO_Conformidad/NcResuelta — encontrado en el JS del sitio
         (función `NcResuelta(id)`), pero NUNCA se ha probado en esta investigación.

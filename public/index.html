@@ -937,7 +937,7 @@ function renderResultados(hallazgos){
       <div class="card-nc" id="ncSys-${escapeHtml(h.nc_formap_id)}" hidden></div>
       <div class="card-actions">
         <button class="btn secondary btn-detalle" data-id="${escapeHtml(h.nc_formap_id)}">Ver detalle</button>
-        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}" data-ruta="${escapeHtml(h.equipo_ruta_id || '')}">${cerrada ? 'Actualizar cierre' : 'Cerrar en FORMAP'}</button>
+        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}" data-ruta="${escapeHtml(h.equipo_ruta_id || '')}" data-conciliada="${cerrada ? '1' : '0'}">${cerrada ? 'Actualizar cierre' : 'Cerrar en FORMAP'}</button>
       </div>
     `;
     cont.appendChild(card);
@@ -947,7 +947,7 @@ function renderResultados(hallazgos){
   cargarCoincidenciasEnMiSistema(hallazgos);
 
   cont.querySelectorAll('.btn-cerrar').forEach(btn => {
-    btn.addEventListener('click', () => abrirConfirmacion(btn.dataset.id, btn.dataset.ruta));
+    btn.addEventListener('click', () => abrirConfirmacion(btn.dataset.id, btn.dataset.ruta, btn.dataset.conciliada === '1'));
   });
   cont.querySelectorAll('.btn-detalle').forEach(btn => {
     btn.addEventListener('click', () => verDetalle(btn.dataset.id));
@@ -1001,8 +1001,11 @@ async function cargarCoincidenciasEnMiSistema(hallazgos){
   }));
 }
 
-async function abrirConfirmacion(ncFormapId, equipoRutaId){
+let pendienteCierreRuta = null;
+
+async function abrirConfirmacion(ncFormapId, equipoRutaId, yaConciliadaEnFormap){
   pendienteCierre = ncFormapId;
+  pendienteCierreRuta = equipoRutaId || null;
   $('confirmText').textContent = 'Consultando el cierre en PIGO (bd_incidencias)...';
   $('confirmDialog').showModal();
 
@@ -1015,10 +1018,14 @@ async function abrirConfirmacion(ncFormapId, equipoRutaId){
   }
 
   const advertencia = `Esta acción llama a FORMAP directamente (EXPERIMENTAL — nunca verificada end-to-end). No se puede deshacer desde el panel.`;
+  const aviso_subida = yaConciliadaEnFormap
+    ? `Esta NC ya tiene respuesta en FORMAP — solo se va a marcar como Resuelta, no se sube nada nuevo.`
+    : `Esta NC <strong>todavía no tiene respuesta en FORMAP</strong> — antes de marcarla Resuelta, se va a subir el comentario y hasta 2 evidencias (foto y/o PDF, lo que tengas en PIGO) a FORMAP.`;
 
   if (coincidencias.length === 0) {
     $('confirmText').innerHTML = `
       <div style="color:var(--amber); margin-bottom:10px;">⚠ No se encontró esta NC en tu sistema (PIGO) por su ruta (${escapeHtml(equipoRutaId || '—')}).</div>
+      ${yaConciliadaEnFormap ? '' : `<div style="color:var(--amber); margin-bottom:10px;">⚠ Sin datos de PIGO no hay con qué conciliarla en FORMAP si aún no tiene respuesta — probablemente falle.</div>`}
       Vas a marcar la NC #${escapeHtml(ncFormapId)} como resuelta directamente en FORMAP, sin nada que confirmar del lado de PIGO. ${advertencia} ¿Continuar de todas formas?
     `;
   } else {
@@ -1032,7 +1039,8 @@ async function abrirConfirmacion(ncFormapId, equipoRutaId){
           ${nc.fotos && nc.fotos.length ? `<div class="adjuntos-grid">${nc.fotos.map(f => renderAdjuntoHtml(f.dropbox_url, f.nombre_original, f.tipo)).join('')}</div>` : ''}
         </div>
       `).join('')}
-      <div style="margin-top:10px;">¿Autorizas mandar este cierre a FORMAP (NC #${escapeHtml(ncFormapId)})? ${advertencia}</div>
+      <div style="margin-bottom:10px;">${aviso_subida}</div>
+      <div>¿Autorizas mandar este cierre a FORMAP (NC #${escapeHtml(ncFormapId)})? ${advertencia}</div>
     `;
     activarVisorFotos($('confirmText'));
   }
@@ -1144,21 +1152,24 @@ $('btnConfirmar').addEventListener('click', async () => {
   try {
     const r = await llamar('/api/formap/cerrar', {
       method: 'POST',
-      body: JSON.stringify({ nc_formap_id: pendienteCierre }),
+      body: JSON.stringify({ nc_formap_id: pendienteCierre, equipo_ruta_id: pendienteCierreRuta }),
     });
     // Endpoint EXPERIMENTAL, nunca verificado end-to-end -- se deja la
     // respuesta cruda en consola para poder cotejarla a mano contra lo que
     // de verdad haya cambiado en FORMAP, no confiar solo en este mensaje.
     console.log('Respuesta cruda de /api/formap/cerrar para NC #' + pendienteCierre + ':', r);
-    toast(
-      (r.ok ? 'FORMAP respondió OK (status ' + r.status_code + ') — ' : 'FORMAP NO confirmó el cierre (status ' + r.status_code + ') — ')
-      + 'verifica en FORMAP antes de confiar en esto.',
-      r.ok ? 'ok' : 'error',
-    );
+    let detalle;
+    if (r.motivo) {
+      detalle = 'no se llegó a llamar a FORMAP (motivo: ' + r.motivo + ')';
+    } else {
+      detalle = (r.ok ? 'FORMAP respondió OK' : 'FORMAP NO confirmó el cierre') + ' (status ' + r.status_code + ')';
+    }
+    toast(detalle + ' — verifica en FORMAP antes de confiar en esto.', r.ok ? 'ok' : 'error');
   } catch (e) {
     toast('Error al cerrar: ' + (e.data?.detail || e.status), 'error');
   }
   pendienteCierre = null;
+  pendienteCierreRuta = null;
 });
 
 // ── Menú principal (Buscador NC / Cierre Periódico) ─────────────────────────
