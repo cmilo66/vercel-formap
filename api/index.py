@@ -21,7 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from lib.formap_client import FormapClient, FormapSessionExpirada, TIPOEQ_TODOS, CONTRATISTA_FSCR, RUTA_IDS_CONOCIDOS, parsear_nc  # noqa: E402
 from lib.formap_bot import buscar_por_ruta_bot, FormapBotSesionExpirada  # noqa: E402
-from lib import session_store  # noqa: E402
+from lib import session_store, rutas_aprendidas  # noqa: E402
 from lib import db, db_incidencias, db_incidencias_escritura, matching, auth  # noqa: E402
 
 # /docs, /redoc y /openapi.json vienen expuestos públicamente por defecto en
@@ -226,6 +226,57 @@ async def buscar_por_ruta_bot_endpoint(request: Request, x_service_key: str = He
         raise HTTPException(status_code=409, detail={"error": str(e), "sesion_expirada": True})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error del bot: {e}")
+
+
+@app.post("/api/formap/buscar-hibrido")
+async def buscar_hibrido(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
+    """Punto de entrada principal del buscador del panel — patrón de fallback:
+
+    1. Intenta el camino RÁPIDO (HTTP puro, ~1s) con RUTA_IDS_CONOCIDOS +
+       lo que ya se haya aprendido antes (rutas_aprendidas.json).
+    2. Si no encuentra nada, cae al BOT (Playwright, ~20-40s) — no depende de
+       ninguna lista, sigue el flujo real del formulario.
+    3. Si el bot SÍ encuentra la NC, extrae el RutaId interno real desde el
+       nombre de archivo de la evidencia y lo agrega a rutas_aprendidas.json —
+       la próxima vez que alguien busque esa misma ruta, el paso 1 ya la
+       encuentra solo, sin volver a necesitar el bot.
+
+    Body: {equipo_ruta_id, fecha_inicio, fecha_fin} con fechas en YYYY-MM-DD."""
+    requiere_service_key(x_service_key, authorization)
+    body = await request.json()
+    equipo_ruta_id = body["equipo_ruta_id"]
+    fecha_inicio_iso, fecha_fin_iso = body["fecha_inicio"], body["fecha_fin"]
+    fecha_inicio_formap = _iso_a_formap(fecha_inicio_iso)
+    fecha_fin_formap = _iso_a_formap(fecha_fin_iso)
+    ruta_ids = ",".join(RUTA_IDS_CONOCIDOS + rutas_aprendidas.cargar())
+
+    def _intento_rapido():
+        return _cliente().buscar_por_equipo_ruta_id(
+            equipo_ruta_id=equipo_ruta_id, fecha_inicio=fecha_inicio_formap,
+            fecha_fin=fecha_fin_formap, ruta_ids=ruta_ids,
+        )
+
+    hallazgos = _con_manejo_sesion(_intento_rapido)
+    if hallazgos:
+        return {"hallazgos": hallazgos, "via": "rapido"}
+
+    try:
+        hallazgos_bot = await run_in_threadpool(
+            buscar_por_ruta_bot, equipo_ruta_id, fecha_inicio_iso, fecha_fin_iso,
+        )
+    except FormapBotSesionExpirada as e:
+        raise HTTPException(status_code=409, detail={"error": str(e), "sesion_expirada": True})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"El camino rápido no encontró nada y el bot falló: {e}")
+
+    ruta_aprendida = None
+    for h in hallazgos_bot:
+        ruta_interna = rutas_aprendidas.extraer_ruta_interna(h)
+        if ruta_interna and rutas_aprendidas.agregar(ruta_interna):
+            ruta_aprendida = ruta_interna
+            break  # con una ruta nueva aprendida por búsqueda alcanza
+
+    return {"hallazgos": hallazgos_bot, "via": "bot", "ruta_aprendida": ruta_aprendida}
 
 
 # ── Integración de solo lectura con bd_incidencias (producción de nc_deploy) ────

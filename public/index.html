@@ -547,7 +547,7 @@
     </div>
     <div class="actions">
       <button class="btn" id="btnBuscar">Buscar en FORMAP</button>
-      <span class="hint" id="buscarHint">Abre FORMAP con un bot real (~15-20s) y selecciona todas las rutas del rango — no depende de una lista fija.</span>
+      <span class="hint" id="buscarHint">Intenta primero rápido (~1s); si no encuentra nada, abre un bot real (~20-40s) y aprende la ruta para la próxima vez.</span>
     </div>
   </div>
 
@@ -1077,8 +1077,8 @@ $('btnBuscar').addEventListener('click', async () => {
   const btn = $('btnBuscar');
   btn.disabled = true;
   try {
-    btn.textContent = 'Bot abriendo FORMAP...';
-    const r = await llamar('/api/formap/buscar-por-ruta-bot', {
+    btn.textContent = 'Buscando (camino rápido)...';
+    const r = await llamar('/api/formap/buscar-hibrido', {
       method: 'POST',
       body: JSON.stringify({
         equipo_ruta_id: equipoRuta,
@@ -1087,7 +1087,12 @@ $('btnBuscar').addEventListener('click', async () => {
       }),
     });
     renderResultados(r.hallazgos);
-    toast(`${r.hallazgos.length} hallazgo(s) encontrado(s).`, 'ok');
+    if (r.via === 'bot') {
+      const nota = r.ruta_aprendida ? ` (ruta ${r.ruta_aprendida} aprendida para la próxima)` : '';
+      toast(`${r.hallazgos.length} hallazgo(s) encontrado(s) vía bot${nota}.`, 'ok');
+    } else {
+      toast(`${r.hallazgos.length} hallazgo(s) encontrado(s).`, 'ok');
+    }
   } catch (e) {
     if (e.data?.sesion_expirada) {
       toast('La sesión de FORMAP expiró — hace falta relogin asistido.', 'error');
