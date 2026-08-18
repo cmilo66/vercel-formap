@@ -360,7 +360,8 @@
   }
   dialog::backdrop{ background: rgba(0,0,0,.7); }
   dialog h4{ font-family: var(--display); font-size:16px; margin-bottom:10px; color: var(--red); }
-  dialog p{ font-size:13px; color: var(--text-dim); line-height:1.5; margin-bottom:20px; }
+  dialog p, dialog .confirm-text{ font-size:13px; color: var(--text-dim); line-height:1.5; margin-bottom:20px; }
+  #confirmDialog{ max-height:80vh; overflow-y:auto; }
   dialog .dialog-actions{ display:flex; gap:10px; justify-content:flex-end; }
 
   #detalleDialog{
@@ -619,7 +620,7 @@
 
 <dialog id="confirmDialog">
   <h4>Confirmar cierre en FORMAP</h4>
-  <p id="confirmText"></p>
+  <div id="confirmText" class="confirm-text"></div>
   <div class="dialog-actions">
     <button class="btn secondary" id="btnCancelar">Cancelar</button>
     <button class="btn danger" id="btnConfirmar">Sí, cerrar</button>
@@ -936,7 +937,7 @@ function renderResultados(hallazgos){
       <div class="card-nc" id="ncSys-${escapeHtml(h.nc_formap_id)}" hidden></div>
       <div class="card-actions">
         <button class="btn secondary btn-detalle" data-id="${escapeHtml(h.nc_formap_id)}">Ver detalle</button>
-        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}">${cerrada ? 'Actualizar cierre' : 'Cerrar en FORMAP'}</button>
+        <button class="btn danger btn-cerrar" data-id="${escapeHtml(h.nc_formap_id)}" data-ruta="${escapeHtml(h.equipo_ruta_id || '')}">${cerrada ? 'Actualizar cierre' : 'Cerrar en FORMAP'}</button>
       </div>
     `;
     cont.appendChild(card);
@@ -946,7 +947,7 @@ function renderResultados(hallazgos){
   cargarCoincidenciasEnMiSistema(hallazgos);
 
   cont.querySelectorAll('.btn-cerrar').forEach(btn => {
-    btn.addEventListener('click', () => abrirConfirmacion(btn.dataset.id));
+    btn.addEventListener('click', () => abrirConfirmacion(btn.dataset.id, btn.dataset.ruta));
   });
   cont.querySelectorAll('.btn-detalle').forEach(btn => {
     btn.addEventListener('click', () => verDetalle(btn.dataset.id));
@@ -1000,10 +1001,39 @@ async function cargarCoincidenciasEnMiSistema(hallazgos){
   }));
 }
 
-function abrirConfirmacion(ncFormapId){
+async function abrirConfirmacion(ncFormapId, equipoRutaId){
   pendienteCierre = ncFormapId;
-  $('confirmText').textContent = `Vas a marcar la NC #${ncFormapId} como resuelta directamente en FORMAP. Esta acción es EXPERIMENTAL — no se ha verificado end-to-end. ¿Continuar?`;
+  $('confirmText').textContent = 'Consultando el cierre en PIGO (bd_incidencias)...';
   $('confirmDialog').showModal();
+
+  let coincidencias = [];
+  if (equipoRutaId) {
+    try {
+      const r = await llamar('/api/incidencias/por-ruta?equipo_ruta_id=' + encodeURIComponent(equipoRutaId));
+      coincidencias = r.coincidencias || [];
+    } catch (e) { /* si falla la consulta, se avisa igual abajo sin bloquear */ }
+  }
+
+  const advertencia = `Esta acción llama a FORMAP directamente (EXPERIMENTAL — nunca verificada end-to-end). No se puede deshacer desde el panel.`;
+
+  if (coincidencias.length === 0) {
+    $('confirmText').innerHTML = `
+      <div style="color:var(--amber); margin-bottom:10px;">⚠ No se encontró esta NC en tu sistema (PIGO) por su ruta (${escapeHtml(equipoRutaId || '—')}).</div>
+      Vas a marcar la NC #${escapeHtml(ncFormapId)} como resuelta directamente en FORMAP, sin nada que confirmar del lado de PIGO. ${advertencia} ¿Continuar de todas formas?
+    `;
+  } else {
+    $('confirmText').innerHTML = `
+      <div style="margin-bottom:12px;">Esto es lo que tienes en PIGO para esta NC — revísalo antes de autorizar el envío a FORMAP:</div>
+      ${coincidencias.map(nc => `
+        <div style="border:1px solid var(--border-bright); padding:10px 12px; margin-bottom:8px; text-align:left;">
+          <div style="font-weight:600; color:var(--text); margin-bottom:4px;">${escapeHtml(nc.titulo || '(sin título)')}</div>
+          <div style="font-family:var(--mono); font-size:11px; color:var(--amber); margin-bottom:4px;">${escapeHtml(nc.estado_actual || '—')}</div>
+          ${nc.ultimo_comentario ? `<div style="font-size:12px; color:var(--text-dim);">${escapeHtml(nc.ultimo_comentario)}</div>` : ''}
+        </div>
+      `).join('')}
+      <div style="margin-top:10px;">¿Autorizas mandar este cierre a FORMAP (NC #${escapeHtml(ncFormapId)})? ${advertencia}</div>
+    `;
+  }
 }
 
 function formatearFechaDet(iso){
