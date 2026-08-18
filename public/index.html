@@ -1002,11 +1002,13 @@ async function cargarCoincidenciasEnMiSistema(hallazgos){
 }
 
 let pendienteCierreRuta = null;
+let pendienteCierreSeleccion = null; // { comentario, evidencias: [{url, nombre}] } -- lo que el humano eligió del historial
 
 async function abrirConfirmacion(ncFormapId, equipoRutaId, yaConciliadaEnFormap){
   pendienteCierre = ncFormapId;
   pendienteCierreRuta = equipoRutaId || null;
-  $('confirmText').textContent = 'Consultando el cierre en PIGO (bd_incidencias)...';
+  pendienteCierreSeleccion = null;
+  $('confirmText').textContent = 'Consultando el historial en PIGO (bd_incidencias)...';
   $('confirmDialog').showModal();
 
   let coincidencias = [];
@@ -1018,9 +1020,6 @@ async function abrirConfirmacion(ncFormapId, equipoRutaId, yaConciliadaEnFormap)
   }
 
   const advertencia = `Esta acción llama a FORMAP directamente (EXPERIMENTAL — nunca verificada end-to-end). No se puede deshacer desde el panel.`;
-  const aviso_subida = yaConciliadaEnFormap
-    ? `Esta NC ya tiene respuesta en FORMAP — solo se va a marcar como Resuelta, no se sube nada nuevo.`
-    : `Esta NC <strong>todavía no tiene respuesta en FORMAP</strong> — antes de marcarla Resuelta, se va a subir el comentario y hasta 2 evidencias (foto y/o PDF, lo que tengas en PIGO) a FORMAP.`;
 
   if (coincidencias.length === 0) {
     $('confirmText').innerHTML = `
@@ -1028,22 +1027,60 @@ async function abrirConfirmacion(ncFormapId, equipoRutaId, yaConciliadaEnFormap)
       ${yaConciliadaEnFormap ? '' : `<div style="color:var(--amber); margin-bottom:10px;">⚠ Sin datos de PIGO no hay con qué conciliarla en FORMAP si aún no tiene respuesta — probablemente falle.</div>`}
       Vas a marcar la NC #${escapeHtml(ncFormapId)} como resuelta directamente en FORMAP, sin nada que confirmar del lado de PIGO. ${advertencia} ¿Continuar de todas formas?
     `;
-  } else {
-    $('confirmText').innerHTML = `
-      <div style="margin-bottom:12px;">Esto es lo que tienes en PIGO para esta NC — revísalo antes de autorizar el envío a FORMAP:</div>
-      ${coincidencias.map(nc => `
+    return;
+  }
+
+  // Trae el historial COMPLETO de cada NC encontrada -- a propósito NO se usa
+  // "el último comentario" solo: en varios casos reales ese campo es nada más
+  // el mensaje genérico de aprobación de confirmadores ("Cierre automático:
+  // todos los confirmadores aprobaron"), no la explicación técnica real de
+  // qué se corrigió. El humano elige acá cuál paso del historial es el bueno.
+  const detalles = await Promise.all(coincidencias.map(nc =>
+    llamar('/api/incidencias/detalle/' + nc.id).catch(() => null)
+  ));
+
+  const aviso_subida = yaConciliadaEnFormap
+    ? `Esta NC ya tiene respuesta en FORMAP — solo se va a marcar como Resuelta, no se sube nada nuevo (la selección de abajo no se usa).`
+    : `Esta NC <strong>todavía no tiene respuesta en FORMAP</strong> — elige abajo cuál paso del historial de PIGO es el que de verdad explica el cierre, para subirlo como observación antes de marcar Resuelta.`;
+
+  $('confirmText').innerHTML = `
+    <div style="margin-bottom:10px;">${aviso_subida}</div>
+    ${coincidencias.map((nc, i) => {
+      const detalle = detalles[i];
+      const historial = (detalle && detalle.historial) || [];
+      return `
         <div style="border:1px solid var(--border-bright); padding:10px 12px; margin-bottom:8px; text-align:left;">
           <div style="font-weight:600; color:var(--text); margin-bottom:4px;">${escapeHtml(nc.titulo || '(sin título)')}</div>
-          <div style="font-family:var(--mono); font-size:11px; color:var(--amber); margin-bottom:4px;">${escapeHtml(nc.estado_actual || '—')}</div>
-          ${nc.ultimo_comentario ? `<div style="font-size:12px; color:var(--text-dim); margin-bottom:8px;">${escapeHtml(nc.ultimo_comentario)}</div>` : ''}
-          ${nc.fotos && nc.fotos.length ? `<div class="adjuntos-grid">${nc.fotos.map(f => renderAdjuntoHtml(f.dropbox_url, f.nombre_original, f.tipo)).join('')}</div>` : ''}
+          <div style="font-family:var(--mono); font-size:11px; color:var(--amber); margin-bottom:8px;">${escapeHtml(nc.estado_actual || '—')}</div>
+          ${historial.length === 0 ? `<div style="font-size:12px; color:var(--text-faint);">Sin historial registrado.</div>` : historial.map((h, hi) => `
+            <label style="display:flex; gap:8px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--border); cursor:${yaConciliadaEnFormap ? 'default' : 'pointer'};">
+              <input type="radio" name="hist-${escapeHtml(nc.id)}" class="radio-historial" data-nc-id="${escapeHtml(nc.id)}" data-hist-index="${hi}" style="margin-top:4px;" ${yaConciliadaEnFormap ? 'disabled' : ''}>
+              <div style="flex:1;">
+                <div style="font-family:var(--mono); font-size:10px; color:var(--teal);">${escapeHtml(formatearFechaCorta(h.fecha))} · ${escapeHtml(h.estado_nuevo || h.tipo || '—')}</div>
+                <div style="font-size:12px; color:var(--text-dim); margin:4px 0;">${escapeHtml(h.comentario || '(sin comentario)')}</div>
+                ${h.fotos && h.fotos.length ? `<div class="adjuntos-grid">${h.fotos.map(f => renderAdjuntoHtml(f.dropbox_url, f.nombre_original, f.tipo)).join('')}</div>` : ''}
+              </div>
+            </label>
+          `).join('')}
         </div>
-      `).join('')}
-      <div style="margin-bottom:10px;">${aviso_subida}</div>
-      <div>¿Autorizas mandar este cierre a FORMAP (NC #${escapeHtml(ncFormapId)})? ${advertencia}</div>
-    `;
-    activarVisorFotos($('confirmText'));
-  }
+      `;
+    }).join('')}
+    <div>¿Autorizas mandar este cierre a FORMAP (NC #${escapeHtml(ncFormapId)})? ${advertencia}</div>
+  `;
+  activarVisorFotos($('confirmText'));
+
+  $('confirmText').querySelectorAll('.radio-historial').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const ncId = radio.dataset.ncId;
+      const hi = parseInt(radio.dataset.histIndex, 10);
+      const iNc = coincidencias.findIndex(nc => nc.id === ncId);
+      const h = detalles[iNc].historial[hi];
+      pendienteCierreSeleccion = {
+        comentario: h.comentario || '',
+        evidencias: (h.fotos || []).map(f => ({ url: f.dropbox_url, nombre: f.nombre_original })),
+      };
+    });
+  });
 }
 
 function formatearFechaDet(iso){
@@ -1146,13 +1183,24 @@ $('btnBuscar').addEventListener('click', async () => {
 
 $('btnCancelar').addEventListener('click', () => $('confirmDialog').close());
 $('btnConfirmar').addEventListener('click', async () => {
+  if (!pendienteCierre) { $('confirmDialog').close(); return; }
+
+  const radios = $('confirmText').querySelectorAll('.radio-historial:not(:disabled)');
+  if (radios.length > 0 && !pendienteCierreSeleccion) {
+    toast('Elige de cuál paso del historial se manda el comentario/evidencia antes de confirmar.', 'error');
+    return; // no cierra el dialog -- deja elegir
+  }
+
   $('confirmDialog').close();
-  if (!pendienteCierre) return;
   toast('Enviando cierre para NC #' + pendienteCierre + '...');
   try {
     const r = await llamar('/api/formap/cerrar', {
       method: 'POST',
-      body: JSON.stringify({ nc_formap_id: pendienteCierre, equipo_ruta_id: pendienteCierreRuta }),
+      body: JSON.stringify({
+        nc_formap_id: pendienteCierre,
+        comentario: pendienteCierreSeleccion?.comentario,
+        evidencias: pendienteCierreSeleccion?.evidencias,
+      }),
     });
     // Endpoint EXPERIMENTAL, nunca verificado end-to-end -- se deja la
     // respuesta cruda en consola para poder cotejarla a mano contra lo que
@@ -1170,6 +1218,7 @@ $('btnConfirmar').addEventListener('click', async () => {
   }
   pendienteCierre = null;
   pendienteCierreRuta = null;
+  pendienteCierreSeleccion = null;
 });
 
 // ── Menú principal (Buscador NC / Cierre Periódico) ─────────────────────────

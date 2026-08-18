@@ -423,49 +423,43 @@ def detalle(nc_formap_id: str, x_service_key: str = Header(default=None), author
 @app.post("/api/formap/cerrar")
 async def cerrar(request: Request, x_service_key: str = Header(default=None), authorization: str = Header(default=None)):
     """EXPERIMENTAL — nunca probado end-to-end contra FORMAP. Body:
-    {nc_formap_id, equipo_ruta_id?}.
+    {nc_formap_id, comentario?, evidencias?}.
+
+    `comentario`/`evidencias` (lista de {url, nombre}, hasta 2) los elige el
+    HUMANO en el panel, revisando el historial completo de PIGO — a propósito
+    NO se auto-deriva "el último comentario" acá: en varios casos reales ese
+    campo es solo el mensaje genérico de aprobación de confirmadores ("Cierre
+    automático..."), no la explicación técnica real de qué se corrigió. Quien
+    llama decidió cuál paso del historial es el que de verdad concilia la NC.
 
     Si la NC YA tiene una observación en FORMAP (ya está conciliada — ver
-    MAPEO_TRAZABILIDAD_FORMAP.md), llama directo a NcResuelta, sin subir nada.
+    MAPEO_TRAZABILIDAD_FORMAP.md), llama directo a NcResuelta, sin subir nada,
+    sin importar qué comentario/evidencias se hayan mandado.
 
-    Si NO tiene ninguna observación todavía, hace falta conciliarla primero:
-    busca el comentario y la evidencia (foto y/o PDF, hasta 2 archivos) en
-    bd_incidencias por equipo_ruta_id, descarga esos archivos, y los sube a
-    FORMAP vía SetObservaciones — recién ahí llama a NcResuelta. Si no hay
-    equipo_ruta_id o no hay comentario/evidencia en bd_incidencias, no
+    Si NO tiene ninguna observación todavía y no se mandó `comentario`, no
     inventa nada: devuelve ok=False con el motivo, sin tocar FORMAP."""
     requiere_service_key(x_service_key, authorization)
     body = await request.json()
     nc_formap_id = body["nc_formap_id"]
-    equipo_ruta_id = body.get("equipo_ruta_id")
+    comentario = body.get("comentario")
+    evidencias = body.get("evidencias") or []
 
     def _hacer():
         cliente = _cliente()
 
         historial = cliente.historial_conciliacion(nc_formap_id)
         if not historial:
-            if not equipo_ruta_id:
-                return {"ok": False, "motivo": "sin_conciliar_sin_equipo_ruta_id"}
+            if not comentario:
+                return {"ok": False, "motivo": "sin_conciliar_sin_comentario_elegido"}
 
-            try:
-                coincidencias = db_incidencias.buscar_por_equipo_ruta_id(equipo_ruta_id)
-            except Exception as e:
-                return {"ok": False, "motivo": "error_leyendo_bd_incidencias", "detalle": str(e)}
-
-            if not coincidencias or not coincidencias[0].get("ultimo_comentario"):
-                return {"ok": False, "motivo": "sin_evidencia_en_pigo"}
-
-            nc_pigo = coincidencias[0]
             archivos = []
-            for foto in (nc_pigo.get("fotos") or [])[:2]:
-                descarga = descargar_archivo_externo(foto["dropbox_url"])
+            for ev in evidencias[:2]:
+                descarga = descargar_archivo_externo(ev["url"])
                 if descarga:
                     contenido, tipo_mime = descarga
-                    archivos.append((foto.get("nombre_original") or "evidencia", contenido, tipo_mime))
+                    archivos.append((ev.get("nombre") or "evidencia", contenido, tipo_mime))
 
-            resultado_obs = cliente.agregar_observacion(
-                nc_formap_id, observacion=nc_pigo["ultimo_comentario"], archivos=archivos,
-            )
+            resultado_obs = cliente.agregar_observacion(nc_formap_id, observacion=comentario, archivos=archivos)
             if not resultado_obs.get("ok"):
                 return {"ok": False, "motivo": "fallo_conciliacion", "detalle_conciliacion": resultado_obs}
 
